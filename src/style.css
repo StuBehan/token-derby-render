@@ -43,6 +43,11 @@ select {
   padding: 0 12px;
 }
 
+select option {
+  background: #161a14;
+  color: #fff8ec;
+}
+
 button:hover,
 select:hover {
   background: rgba(255, 255, 255, 0.16);
@@ -130,12 +135,88 @@ select:hover {
   font-weight: 700;
 }
 
+.hud-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+  pointer-events: auto;
+}
+
+.time-control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 6px;
+  background: rgba(22, 26, 20, 0.72);
+  backdrop-filter: blur(12px);
+}
+
+.clock-display {
+  color: #e7d17c;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 1.15rem;
+  font-weight: 700;
+  text-shadow: 0 0 10px rgba(231, 209, 124, 0.35);
+  min-width: 60px;
+  text-align: center;
+}
+
+.time-control input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 140px;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.2);
+  outline: none;
+  cursor: pointer;
+}
+
+.time-control input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #e7d17c;
+  cursor: pointer;
+  box-shadow: 0 0 8px rgba(231, 209, 124, 0.6);
+  transition: transform 0.1s ease;
+}
+
+.time-control input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.time-control input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 50%;
+  background: #e7d17c;
+  cursor: pointer;
+  box-shadow: 0 0 8px rgba(231, 209, 124, 0.6);
+  transition: transform 0.1s ease;
+}
+
+.time-control input[type="range"]::-moz-range-thumb:hover {
+  transform: scale(1.2);
+}
+
 @media (max-width: 640px) {
   .race-hud {
     top: 14px;
     left: 14px;
     right: 14px;
     flex-direction: column;
+  }
+
+  .hud-controls {
+    align-items: flex-start;
+    width: 100%;
   }
 
   .race-actions {

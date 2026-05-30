@@ -21,6 +21,17 @@ export class Horse {
   private readonly initialProgress: number;
   private jockey!: Person;
   private prevSwings: number[] = [0, 0, 0, 0];
+  private readonly normal = new THREE.Vector3();
+  private readonly hoofPos = new THREE.Vector3();
+  private readonly backwardDir = new THREE.Vector3();
+  private readonly leftHandWorld = new THREE.Vector3();
+  private readonly rightHandWorld = new THREE.Vector3();
+  private readonly leftHandLocal = new THREE.Vector3();
+  private readonly rightHandLocal = new THREE.Vector3();
+  private readonly leftReinPositions = new Float32Array([2.5, 2.3, 0.12, -0.15, 2.35, 0.08]);
+  private readonly rightReinPositions = new Float32Array([2.5, 2.3, -0.12, -0.15, 2.35, -0.08]);
+  private leftReinPositionAttribute!: THREE.BufferAttribute;
+  private rightReinPositionAttribute!: THREE.BufferAttribute;
   public pendingStrikes: { position: THREE.Vector3; backwardDir: THREE.Vector3 }[] = [];
 
   public progress: number;
@@ -213,17 +224,15 @@ export class Horse {
     // Reins connecting horse snout to jockey's hands
     const reinMaterial = new THREE.LineBasicMaterial({ color: 0x221105 }); // Dark leather reins
     
-    const leftReinGeo = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(2.5, 2.3, 0.12),
-      new THREE.Vector3(-0.15, 2.35, 0.08)
-    ]);
+    const leftReinGeo = new THREE.BufferGeometry();
+    this.leftReinPositionAttribute = new THREE.BufferAttribute(this.leftReinPositions, 3);
+    leftReinGeo.setAttribute('position', this.leftReinPositionAttribute);
     this.leftRein = new THREE.Line(leftReinGeo, reinMaterial);
     this.group.add(this.leftRein);
 
-    const rightReinGeo = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(2.5, 2.3, -0.12),
-      new THREE.Vector3(-0.15, 2.35, -0.08)
-    ]);
+    const rightReinGeo = new THREE.BufferGeometry();
+    this.rightReinPositionAttribute = new THREE.BufferAttribute(this.rightReinPositions, 3);
+    rightReinGeo.setAttribute('position', this.rightReinPositionAttribute);
     this.rightRein = new THREE.Line(rightReinGeo, reinMaterial);
     this.group.add(this.rightRein);
 
@@ -234,7 +243,7 @@ export class Horse {
     this.progress = this.initialProgress;
     this.phase = this.index * 0.7;
     this.prevSwings = [0, 0, 0, 0];
-    this.pendingStrikes = [];
+    this.pendingStrikes.length = 0;
   }
 
   public update(delta: number, trackCurve: THREE.CatmullRomCurve3) {
@@ -247,10 +256,10 @@ export class Horse {
 
     const position = trackCurve.getPointAt(Math.max(0, this.progress));
     const tangent = trackCurve.getTangentAt(Math.max(0, this.progress)).normalize();
-    const normal = new THREE.Vector3(-tangent.z, 0, tangent.x).normalize();
+    this.normal.set(-tangent.z, 0, tangent.x).normalize();
     const laneBob = Math.sin(this.phase) * 0.12;
 
-    this.group.position.copy(position).addScaledVector(normal, this.laneOffset);
+    this.group.position.copy(position).addScaledVector(this.normal, this.laneOffset);
     this.group.position.y = 0.628 + laneBob;
     this.group.rotation.set(0, -Math.atan2(tangent.z, tangent.x), 0);
 
@@ -264,7 +273,7 @@ export class Horse {
       -Math.sin(phaseAngle - 0.8) * 0.5     // Front-Right
     ];
 
-    this.pendingStrikes = [];
+    this.pendingStrikes.length = 0;
     const hoofOffset = -0.68 - 0.075;
 
     for (let i = 0; i < 4; i++) {
@@ -281,11 +290,14 @@ export class Horse {
       // Check for strike: transition from forward (swing > 0) to backward (swing < 0)
       const prevSwing = this.prevSwings[i];
       if (swing < 0 && prevSwing >= 0) {
-        const hoofPos = new THREE.Vector3(0, hoofOffset, 0);
-        this.lowerLegs[i].localToWorld(hoofPos);
-        hoofPos.y = 0.04; // align with track height
-        const backwardDir = new THREE.Vector3(-tangent.x, 0, -tangent.z).normalize();
-        this.pendingStrikes.push({ position: hoofPos, backwardDir });
+        this.hoofPos.set(0, hoofOffset, 0);
+        this.lowerLegs[i].localToWorld(this.hoofPos);
+        this.hoofPos.y = 0.04; // align with track height
+        this.backwardDir.set(-tangent.x, 0, -tangent.z).normalize();
+        this.pendingStrikes.push({
+          position: this.hoofPos.clone(),
+          backwardDir: this.backwardDir.clone(),
+        });
       }
       this.prevSwings[i] = swing;
     }
@@ -302,27 +314,23 @@ export class Horse {
     );
 
     // Update reins positions dynamically to connect horse snout to jockey's hands
-    const leftHandWorld = new THREE.Vector3();
-    const rightHandWorld = new THREE.Vector3();
-    this.jockey.leftHand.getWorldPosition(leftHandWorld);
-    this.jockey.rightHand.getWorldPosition(rightHandWorld);
+    this.jockey.leftHand.getWorldPosition(this.leftHandWorld);
+    this.jockey.rightHand.getWorldPosition(this.rightHandWorld);
 
-    const leftHandLocal = this.group.worldToLocal(leftHandWorld);
-    const rightHandLocal = this.group.worldToLocal(rightHandWorld);
+    this.leftHandLocal.copy(this.leftHandWorld);
+    this.rightHandLocal.copy(this.rightHandWorld);
+    this.group.worldToLocal(this.leftHandLocal);
+    this.group.worldToLocal(this.rightHandLocal);
 
     // snout/mouth bit attachment point is around x=2.5, y=2.3, z=±0.12
-    const leftPositions = new Float32Array([
-      2.5, 2.3, 0.12,
-      leftHandLocal.x, leftHandLocal.y, leftHandLocal.z
-    ]);
-    this.leftRein.geometry.setAttribute('position', new THREE.BufferAttribute(leftPositions, 3));
-    this.leftRein.geometry.attributes.position.needsUpdate = true;
+    this.leftReinPositions[3] = this.leftHandLocal.x;
+    this.leftReinPositions[4] = this.leftHandLocal.y;
+    this.leftReinPositions[5] = this.leftHandLocal.z;
+    this.leftReinPositionAttribute.needsUpdate = true;
 
-    const rightPositions = new Float32Array([
-      2.5, 2.3, -0.12,
-      rightHandLocal.x, rightHandLocal.y, rightHandLocal.z
-    ]);
-    this.rightRein.geometry.setAttribute('position', new THREE.BufferAttribute(rightPositions, 3));
-    this.rightRein.geometry.attributes.position.needsUpdate = true;
+    this.rightReinPositions[3] = this.rightHandLocal.x;
+    this.rightReinPositions[4] = this.rightHandLocal.y;
+    this.rightReinPositions[5] = this.rightHandLocal.z;
+    this.rightReinPositionAttribute.needsUpdate = true;
   }
 }

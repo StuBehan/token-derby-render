@@ -3,11 +3,10 @@ import { Horse } from './Horse';
 import { Grandstand } from './Grandstand';
 import { StreetLight } from './StreetLight';
 import { Bench } from './Bench';
-import { Tree } from './Tree';
 import { TerraceHouse } from './TerraceHouse';
 import { LondonSkyline } from './LondonSkyline';
 import { Floodlights } from './Floodlights';
-import { Weather, WeatherType, LightCloudWeather, VeryCloudyWeather, RainyWeather, StormWeather } from './Weather';
+import { WeatherManager, WeatherType, RainEffect, LightningEffect } from './Weather';
 
 type ParkPath = {
   width: number;
@@ -27,6 +26,9 @@ const TRACK_LANE_WIDTH = (TRACK_OUTER_RADIUS - TRACK_INNER_RADIUS) / TRACK_LANE_
 const PARK_BOUNDARY_HALF_WIDTH = 126;
 const PARK_BOUNDARY_HALF_DEPTH = 86;
 const MAX_RENDER_PIXEL_RATIO = 1.5;
+const CLOUD_DETAIL_UPDATE_INTERVAL = 0.12;
+const MAX_DUST_PARTICLES = 250;
+const UNIT_CLOUD_PUFF_GEOM = new THREE.DodecahedronGeometry(1.0, 0); // Shared unit dodecahedron for all cloud puffs (detail 0 for performance)
 const PARK_PATHS: ParkPath[] = [
   { width: 360, depth: 6.2, x: 0, z: 60, rotation: 0.03 },
   { width: 360, depth: 5.2, x: 12, z: -70, rotation: -0.04 },
@@ -45,9 +47,12 @@ export class DerbyScene {
   
   // Skyline and weather components
   private skyline!: LondonSkyline;
+  private floodlights!: Floodlights;
   private activeWeatherType: WeatherType = 'light_cloud';
-  private weatherEffect!: Weather;
-  private weatherInstances!: Record<WeatherType, Weather>;
+  private weatherManager!: WeatherManager;
+  private skyMesh!: THREE.Mesh;
+  private timeOfDay = 12.0; // starts at noon (12:00 PM)
+  public onTimeUpdate?: (time: number) => void;
   
   // Environment references used by weather system
   private skyMaterial!: THREE.ShaderMaterial;
@@ -73,12 +78,20 @@ export class DerbyScene {
     maxAge: number;
     scale: number;
   }[] = [];
+  private readonly activeDustIndices: number[] = [];
+  private readonly activeDustSet = new Set<number>();
+  private readonly dustDummy = new THREE.Object3D();
+  private readonly dustSideDir = new THREE.Vector3();
   private particleIndex = 0;
   private readonly cameraTarget = new THREE.Vector3(0, 5, 0);
+  private readonly cameraBaseDirection = new THREE.Vector3();
+  private readonly cameraLookDirection = new THREE.Vector3();
+  private readonly cameraLookTarget = new THREE.Vector3();
   private cameraRailAngle = Math.atan2(52, -42);
   private cameraHeight = 30;
   private freeLookYaw = 0;
   private freeLookPitch = 0;
+  private cloudDetailElapsed = 0;
   private isPointerLooking = false;
   private lastPointerX = 0;
   private lastPointerY = 0;
@@ -130,18 +143,20 @@ export class DerbyScene {
   }
 
   setWeather(type: WeatherType) {
-    if (!this.weatherInstances) {
+    if (!this.weatherManager) {
       this.activeWeatherType = type;
       return;
     }
 
-    if (this.weatherEffect) {
-      this.weatherEffect.deactivate();
-    }
-
     this.activeWeatherType = type;
-    this.weatherEffect = this.weatherInstances[type];
-    this.weatherEffect.activate();
+    this.weatherManager.setWeather(type);
+
+    // Floodlight activation is handled in the main tick loop based on weather and time of day
+  }
+
+  setTimeOfDay(time: number) {
+    this.timeOfDay = time % 24.0;
+    this.weatherManager?.update(0, this.timeOfDay);
   }
 
   reset() {
@@ -162,8 +177,8 @@ export class DerbyScene {
     window.removeEventListener('pointercancel', this.handlePointerUp);
     
     // Dispose of weather effects and rain/lightning resources
-    if (this.weatherInstances) {
-      Object.values(this.weatherInstances).forEach((w) => w.dispose());
+    if (this.weatherManager) {
+      this.weatherManager.dispose();
     }
 
     this.scene.traverse((object) => {
@@ -215,10 +230,11 @@ export class DerbyScene {
     this.addLondonParkDetails();
     this.addTrack();
     this.addRails();
-    this.scene.add(new Floodlights({
+    this.floodlights = new Floodlights({
       trackStraightHalfLength: TRACK_STRAIGHT_HALF_LENGTH,
       trackOuterRadius: TRACK_OUTER_RADIUS,
-    }));
+    });
+    this.scene.add(this.floodlights);
     this.scene.add(new Grandstand());
     this.addFinishLine();
     this.initDustParticles();
@@ -228,6 +244,9 @@ export class DerbyScene {
   }
 
   private initWeather() {
+    const rain = new RainEffect(this.scene, 5000);
+    const lightning = new LightningEffect(this.scene);
+
     const weatherContext = {
       scene: this.scene,
       skyMaterial: this.skyMaterial,
@@ -235,15 +254,12 @@ export class DerbyScene {
       sunLight: this.sunLight,
       fog: this.fog,
       configureClouds: this.configureClouds,
+      rainEffect: rain,
+      lightningEffect: lightning,
+      skyMesh: this.skyMesh,
     };
 
-    this.weatherInstances = {
-      light_cloud: new LightCloudWeather(weatherContext),
-      very_cloudy: new VeryCloudyWeather(weatherContext),
-      rainy: new RainyWeather(weatherContext),
-      storm: new StormWeather(weatherContext),
-    };
-
+    this.weatherManager = new WeatherManager(weatherContext, this.activeWeatherType);
     this.setWeather(this.activeWeatherType);
   }
 
@@ -278,6 +294,7 @@ export class DerbyScene {
       uniforms: {
         topColor: { value: new THREE.Color(0x94aebf) },
         horizonColor: { value: new THREE.Color(0xd4d8d0) },
+        nightFactor: { value: 0.0 }, // 0.0 (day) to 1.0 (night)
       },
       vertexShader: `
         varying vec3 vWorldPosition;
@@ -291,11 +308,30 @@ export class DerbyScene {
       fragmentShader: `
         uniform vec3 topColor;
         uniform vec3 horizonColor;
+        uniform float nightFactor;
         varying vec3 vWorldPosition;
 
+        // Simple hash to generate stars
+        float hash(vec3 p) {
+          p = fract(p * 0.3183099 + vec3(0.1, 0.1, 0.1));
+          p *= 17.0;
+          return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+        }
+
         void main() {
+          vec3 dir = normalize(vWorldPosition);
           float heightMix = smoothstep(-24.0, 155.0, vWorldPosition.y);
-          gl_FragColor = vec4(mix(horizonColor, topColor, heightMix), 1.0);
+          vec3 skyColor = mix(horizonColor, topColor, heightMix);
+          
+          if (dir.y > 0.0 && nightFactor > 0.01) {
+            float starValue = hash(floor(dir * 180.0));
+            if (starValue > 0.994) {
+              float intensity = fract(starValue * 123.4) * nightFactor;
+              skyColor += vec3(intensity);
+            }
+          }
+          
+          gl_FragColor = vec4(skyColor, 1.0);
         }
       `,
     });
@@ -306,6 +342,7 @@ export class DerbyScene {
     );
     sky.renderOrder = -10;
     this.scene.add(sky);
+    this.skyMesh = sky;
 
     const hillMaterial = new THREE.MeshStandardMaterial({ color: 0x637854, roughness: 1 });
     const farHillMaterial = new THREE.MeshStandardMaterial({ color: 0x819071, roughness: 1 });
@@ -327,32 +364,155 @@ export class DerbyScene {
       this.scene.add(mound);
     }
 
-    const treeLine = new THREE.Group();
     const canopyMaterials = [0x2f4a2e, 0x41643a, 0x5d7446].map(
       (color) => new THREE.MeshStandardMaterial({ color, roughness: 0.88 }),
     );
+    const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x483626, roughness: 0.88 });
+
+    const trunkMatrices: THREE.Matrix4[] = [];
+    const pineMatrices: THREE.Matrix4[][] = canopyMaterials.map(() => []);
+    const deciduousMatrices: THREE.Matrix4[][] = canopyMaterials.map(() => []);
 
     let placedTrees = 0;
-    for (let index = 0; placedTrees < 70 && index < 160; index += 1) {
-      const angle = (index / 70) * TAU;
-      const radiusX = 136 + Math.sin(index * 1.9) * 8;
-      const radiusZ = 92 + Math.cos(index * 1.3) * 6;
-      const x = Math.cos(angle) * radiusX;
-      const z = Math.sin(angle) * radiusZ;
+    const rings = [
+      { rx: 132, rz: 88, count: 90 },
+      { rx: 144, rz: 98, count: 110 },
+      { rx: 156, rz: 108, count: 130 },
+      { rx: 168, rz: 118, count: 150 },
+    ];
 
-      if (this.isOnParkPath(x, z, 5.5)) {
-        continue;
+    for (let r = 0; r < rings.length; r++) {
+      const ring = rings[r];
+      for (let i = 0; i < ring.count; i++) {
+        const angle = (i / ring.count) * TAU;
+        // Jitter to make it organic and natural
+        const jitterRadius = Math.sin(i * 2.3 + r * 7.1) * 3.5;
+        const x = Math.cos(angle) * (ring.rx + jitterRadius);
+        const z = Math.sin(angle) * (ring.rz + jitterRadius);
+
+        if (this.isOnParkPath(x, z, 5.0)) {
+          continue;
+        }
+
+        // Keep out of racetrack area
+        if (Math.abs(x) < 95 && Math.abs(z) < 62) {
+          continue;
+        }
+
+        const seedIndex = placedTrees;
+        const height = 6.4 + (seedIndex % 5) * 0.75;
+        const canopyRadius = 3.2 + (seedIndex % 3) * 0.42;
+        const isPine = seedIndex % 3 === 0;
+        const matIdx = seedIndex % canopyMaterials.length;
+
+        // 1. Trunk Base (tapered cylinder: bottom radius 0.42, height 0.8, top radius 0.24)
+        const basePos = new THREE.Vector3(x, 0.4, z);
+        const baseScale = new THREE.Vector3(0.42, 0.8, 0.42);
+        const baseMat = new THREE.Matrix4().compose(basePos, new THREE.Quaternion(), baseScale);
+        trunkMatrices.push(baseMat);
+
+        // 2. Main Shaft (tapered cylinder: bottom radius 0.24, height = height - 0.8, top radius ~0.14)
+        const shaftHeight = height - 0.8;
+        const shaftPosY = (height + 0.8) / 2 - 0.4;
+        const shaftPos = new THREE.Vector3(x, shaftPosY, z);
+        const shaftScale = new THREE.Vector3(0.24, shaftHeight, 0.24);
+        const shaftMat = new THREE.Matrix4().compose(shaftPos, new THREE.Quaternion(), shaftScale);
+        trunkMatrices.push(shaftMat);
+
+        if (isPine) {
+          const layers = 3;
+          const layerSpacing = canopyRadius * 0.52;
+          for (let l = 0; l < layers; l++) {
+            const layerScale = 1.0 - l * 0.22;
+            const layerHeight = canopyRadius * 1.1 * layerScale;
+            const layerRadius = canopyRadius * layerScale;
+            const yPos = height - 0.5 + l * layerSpacing;
+
+            const layerMat = new THREE.Matrix4().compose(
+              new THREE.Vector3(x, yPos, z),
+              new THREE.Quaternion(),
+              new THREE.Vector3(layerRadius, layerHeight, layerRadius)
+            );
+            pineMatrices[matIdx].push(layerMat);
+          }
+        } else {
+          // Branch 1 (tapered cylinder: bottom radius 0.14, height 1.8, top radius 0.08)
+          const b1Pos = new THREE.Vector3(x + 0.4, height - 1.2, z);
+          const b1Rot = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -0.4));
+          const b1Scale = new THREE.Vector3(0.14, 1.8, 0.14);
+          const b1Mat = new THREE.Matrix4().compose(b1Pos, b1Rot, b1Scale);
+          trunkMatrices.push(b1Mat);
+
+          // Branch 2 (tapered cylinder: bottom radius 0.14, height 1.6, top radius 0.08)
+          const b2Pos = new THREE.Vector3(x - 0.3, height - 1.3, z + 0.3);
+          const b2Rot = new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.3, 0, 0.4));
+          const b2Scale = new THREE.Vector3(0.14, 1.6, 0.14);
+          const b2Mat = new THREE.Matrix4().compose(b2Pos, b2Rot, b2Scale);
+          trunkMatrices.push(b2Mat);
+
+          // Central Canopy (dodecahedron)
+          const rCentral = canopyRadius * 0.82;
+          const centralMat = new THREE.Matrix4().compose(
+            new THREE.Vector3(x, height, z),
+            new THREE.Quaternion(),
+            new THREE.Vector3(rCentral, rCentral, rCentral)
+          );
+          deciduousMatrices[matIdx].push(centralMat);
+
+          // Offset Canopy 1 (dodecahedron)
+          const rOffset1 = canopyRadius * 0.54;
+          const offset1Mat = new THREE.Matrix4().compose(
+            new THREE.Vector3(x + 0.8, height - 0.4, z),
+            new THREE.Quaternion(),
+            new THREE.Vector3(rOffset1, rOffset1, rOffset1)
+          );
+          deciduousMatrices[matIdx].push(offset1Mat);
+
+          // Offset Canopy 2 (dodecahedron)
+          const rOffset2 = canopyRadius * 0.48;
+          const offset2Mat = new THREE.Matrix4().compose(
+            new THREE.Vector3(x - 0.6, height - 0.6, z + 0.6),
+            new THREE.Quaternion(),
+            new THREE.Vector3(rOffset2, rOffset2, rOffset2)
+          );
+          deciduousMatrices[matIdx].push(offset2Mat);
+        }
+
+        placedTrees++;
       }
-
-      const tree = new Tree(new THREE.Vector3(x, 0, z), {
-        canopyMaterial: canopyMaterials[placedTrees % canopyMaterials.length],
-        seedIndex: placedTrees,
-      });
-      treeLine.add(tree.group);
-      placedTrees += 1;
     }
 
-    this.scene.add(treeLine);
+    // Now instantiate all instanced meshes
+    if (trunkMatrices.length > 0) {
+      const trunkGeom = new THREE.CylinderGeometry(0.57, 1.0, 1.0, 5); // Tapered unit geometry
+      const trunkMesh = new THREE.InstancedMesh(trunkGeom, trunkMaterial, trunkMatrices.length);
+      trunkMesh.castShadow = true;
+      trunkMesh.receiveShadow = true;
+      trunkMatrices.forEach((m, idx) => trunkMesh.setMatrixAt(idx, m));
+      this.scene.add(trunkMesh);
+    }
+
+    const pineGeom = new THREE.ConeGeometry(1.0, 1.0, 5);
+    for (let m = 0; m < canopyMaterials.length; m++) {
+      const matrices = pineMatrices[m];
+      if (matrices.length > 0) {
+        const pineMesh = new THREE.InstancedMesh(pineGeom, canopyMaterials[m], matrices.length);
+        pineMesh.castShadow = true;
+        matrices.forEach((mat, idx) => pineMesh.setMatrixAt(idx, mat));
+        this.scene.add(pineMesh);
+      }
+    }
+
+    const deciduousGeom = new THREE.DodecahedronGeometry(1.0, 0);
+    for (let m = 0; m < canopyMaterials.length; m++) {
+      const matrices = deciduousMatrices[m];
+      if (matrices.length > 0) {
+        const deciduousMesh = new THREE.InstancedMesh(deciduousGeom, canopyMaterials[m], matrices.length);
+        deciduousMesh.castShadow = true;
+        matrices.forEach((mat, idx) => deciduousMesh.setMatrixAt(idx, mat));
+        this.scene.add(deciduousMesh);
+      }
+    }
   }
 
   private addLondonParkDetails() {
@@ -399,10 +559,10 @@ export class DerbyScene {
       this.scene.add(newBench.group);
     }
 
-    this.addCityHorizon(brickMaterials);
+    this.addCityHorizon(brickMaterials, ironMaterial);
   }
 
-  private addCityHorizon(brickMaterials: THREE.Material[]) {
+  private addCityHorizon(brickMaterials: THREE.Material[], ironMaterial: THREE.Material) {
     const spacing = 14;
     const northZ = -PARK_BOUNDARY_HALF_DEPTH - 45;
     const southZ = PARK_BOUNDARY_HALF_DEPTH + 45;
@@ -434,7 +594,7 @@ export class DerbyScene {
         const house = new TerraceHouse(new THREE.Vector3(westX - (index % 2) * 2, 0, z), {
           index: index + 60,
           brickMaterials,
-          rotationY: -Math.PI / 2,
+          rotationY: Math.PI / 2, // Rotated to face East (+X) towards the track
         });
         this.scene.add(house.group);
       }
@@ -443,9 +603,46 @@ export class DerbyScene {
         const house = new TerraceHouse(new THREE.Vector3(eastX + (index % 2) * 2, 0, z), {
           index: index + 90,
           brickMaterials,
-          rotationY: Math.PI / 2,
+          rotationY: -Math.PI / 2, // Rotated to face West (-X) towards the track
         });
         this.scene.add(house.group);
+      }
+    }
+
+    // Place street lights in front of town houses along each edge, checking for street openings
+    const streetlightSpacing = 35;
+
+    // 1. North Edge streetlights (Z = -122)
+    for (let x = -PARK_BOUNDARY_HALF_WIDTH - 25; x <= PARK_BOUNDARY_HALF_WIDTH + 25; x += streetlightSpacing) {
+      if (!this.isStreetOpening(x, -122, 6)) {
+        const streetLight = new StreetLight(new THREE.Vector3(x, 0, -122), ironMaterial);
+        this.scene.add(streetLight.group);
+      }
+    }
+
+    // 2. South Edge streetlights (Z = 122)
+    for (let x = -PARK_BOUNDARY_HALF_WIDTH - 25; x <= PARK_BOUNDARY_HALF_WIDTH + 25; x += streetlightSpacing) {
+      if (!this.isStreetOpening(x, 122, 6)) {
+        const streetLight = new StreetLight(new THREE.Vector3(x, 0, 122), ironMaterial);
+        this.scene.add(streetLight.group);
+      }
+    }
+
+    // 3. West Edge streetlights (X = -158)
+    for (let z = -PARK_BOUNDARY_HALF_DEPTH - 25; z <= PARK_BOUNDARY_HALF_DEPTH + 25; z += streetlightSpacing) {
+      if (!this.isStreetOpening(-158, z, 6)) {
+        const streetLight = new StreetLight(new THREE.Vector3(-158, 0, z), ironMaterial);
+        streetLight.group.rotation.y = Math.PI / 2; // Span parallel to street
+        this.scene.add(streetLight.group);
+      }
+    }
+
+    // 4. East Edge streetlights (X = 158)
+    for (let z = -PARK_BOUNDARY_HALF_DEPTH - 25; z <= PARK_BOUNDARY_HALF_DEPTH + 25; z += streetlightSpacing) {
+      if (!this.isStreetOpening(158, z, 6)) {
+        const streetLight = new StreetLight(new THREE.Vector3(158, 0, z), ironMaterial);
+        streetLight.group.rotation.y = Math.PI / 2; // Span parallel to street
+        this.scene.add(streetLight.group);
       }
     }
   }
@@ -468,12 +665,22 @@ export class DerbyScene {
       .filter((path) => path.depth > path.width)
       .map((path) => ({ center: path.x, width: path.width + 8 }));
 
+    const railMatrices: THREE.Matrix4[] = [];
+    const postMatrices: THREE.Matrix4[] = [];
+    const postCapMatrices: THREE.Matrix4[] = [];
+    const picketMatrices: THREE.Matrix4[] = [];
+    const picketCapMatrices: THREE.Matrix4[] = [];
+
     for (const x of [-halfWidth, halfWidth]) {
       for (const segment of this.createFenceRuns(-halfDepth, halfDepth, sideGaps)) {
         this.addFenceSegment(
           new THREE.Vector3(x, 0, segment.start),
           new THREE.Vector3(x, 0, segment.end),
-          material,
+          railMatrices,
+          postMatrices,
+          postCapMatrices,
+          picketMatrices,
+          picketCapMatrices,
         );
       }
     }
@@ -483,9 +690,54 @@ export class DerbyScene {
         this.addFenceSegment(
           new THREE.Vector3(segment.start, 0, z),
           new THREE.Vector3(segment.end, 0, z),
-          material,
+          railMatrices,
+          postMatrices,
+          postCapMatrices,
+          picketMatrices,
+          picketCapMatrices,
         );
       }
+    }
+
+    // Instantiate all batched components
+    if (railMatrices.length > 0) {
+      const railGeom = new THREE.BoxGeometry(1.0, 1.0, 1.0); // Unit geometry scaled in matrix
+      const railMesh = new THREE.InstancedMesh(railGeom, material, railMatrices.length);
+      railMesh.castShadow = true;
+      railMatrices.forEach((m, idx) => railMesh.setMatrixAt(idx, m));
+      this.scene.add(railMesh);
+    }
+
+    if (postMatrices.length > 0) {
+      const postGeom = new THREE.BoxGeometry(0.14, 2.3, 0.14);
+      const postMesh = new THREE.InstancedMesh(postGeom, material, postMatrices.length);
+      postMesh.castShadow = true;
+      postMatrices.forEach((m, idx) => postMesh.setMatrixAt(idx, m));
+      this.scene.add(postMesh);
+    }
+
+    if (postCapMatrices.length > 0) {
+      const postCapGeom = new THREE.ConeGeometry(0.10, 0.22, 6);
+      const postCapMesh = new THREE.InstancedMesh(postCapGeom, material, postCapMatrices.length);
+      postCapMesh.castShadow = true;
+      postCapMatrices.forEach((m, idx) => postCapMesh.setMatrixAt(idx, m));
+      this.scene.add(postCapMesh);
+    }
+
+    if (picketMatrices.length > 0) {
+      const picketGeom = new THREE.BoxGeometry(0.04, 1.8, 0.04);
+      const picketMesh = new THREE.InstancedMesh(picketGeom, material, picketMatrices.length);
+      picketMesh.castShadow = true;
+      picketMatrices.forEach((m, idx) => picketMesh.setMatrixAt(idx, m));
+      this.scene.add(picketMesh);
+    }
+
+    if (picketCapMatrices.length > 0) {
+      const picketCapGeom = new THREE.ConeGeometry(0.04, 0.12, 4);
+      const picketCapMesh = new THREE.InstancedMesh(picketCapGeom, material, picketCapMatrices.length);
+      picketCapMesh.castShadow = true;
+      picketCapMatrices.forEach((m, idx) => picketCapMesh.setMatrixAt(idx, m));
+      this.scene.add(picketCapMesh);
     }
   }
 
@@ -531,45 +783,65 @@ export class DerbyScene {
     });
   }
 
-  private addFenceSegment(start: THREE.Vector3, end: THREE.Vector3, material: THREE.Material) {
-    const segmentGroup = new THREE.Group();
+  private addFenceSegment(
+    start: THREE.Vector3,
+    end: THREE.Vector3,
+    railMatrices: THREE.Matrix4[],
+    postMatrices: THREE.Matrix4[],
+    postCapMatrices: THREE.Matrix4[],
+    picketMatrices: THREE.Matrix4[],
+    picketCapMatrices: THREE.Matrix4[],
+  ) {
     const length = start.distanceTo(end);
     const isVerticalRun = Math.abs(start.x - end.x) < 0.01;
     const rotationY = isVerticalRun ? Math.PI / 2 : 0;
+    const midpoint = start.clone().add(end).multiplyScalar(0.5);
+
+    const cos = Math.cos(rotationY);
+    const sin = Math.sin(rotationY);
+
+    const getWorldPos = (lx: number, ly: number, lz: number) => {
+      return new THREE.Vector3(
+        midpoint.x + lx * cos - lz * sin,
+        ly,
+        midpoint.z + lx * sin + lz * cos
+      );
+    };
 
     // 1. Rails (3 rails: bottom, mid, top)
     const railHeights = [0.25, 1.1, 1.95];
-    const railGeom = new THREE.BoxGeometry(length, 0.05, 0.08);
     for (const y of railHeights) {
-      const rail = new THREE.Mesh(railGeom, material);
-      rail.position.set(0, y, 0);
-      rail.castShadow = true;
-      segmentGroup.add(rail);
+      const railPos = getWorldPos(0, y, 0);
+      const railMat = new THREE.Matrix4().compose(
+        railPos,
+        new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rotationY, 0)),
+        new THREE.Vector3(length, 0.05, 0.08)
+      );
+      railMatrices.push(railMat);
     }
 
     // 2. Main Posts and Pickets
     const postCount = Math.max(2, Math.floor(length / 4));
     const halfLength = length / 2;
-    
-    const postGeom = new THREE.BoxGeometry(0.14, 2.3, 0.14);
-    const postCapGeom = new THREE.ConeGeometry(0.10, 0.22, 6);
-
-    const picketGeom = new THREE.BoxGeometry(0.04, 1.8, 0.04);
-    const picketCapGeom = new THREE.ConeGeometry(0.04, 0.12, 4);
 
     for (let i = 0; i <= postCount; i++) {
       const postLocalX = -halfLength + (i / postCount) * length;
       
-      // Render main post
-      const post = new THREE.Mesh(postGeom, material);
-      post.position.set(postLocalX, 1.15, 0); // Y centered at 1.15 (0 to 2.3)
-      post.castShadow = true;
-      segmentGroup.add(post);
+      const postPos = getWorldPos(postLocalX, 1.15, 0);
+      const postMat = new THREE.Matrix4().compose(
+        postPos,
+        new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rotationY, 0)),
+        new THREE.Vector3(1, 1, 1)
+      );
+      postMatrices.push(postMat);
 
-      const cap = new THREE.Mesh(postCapGeom, material);
-      cap.position.set(postLocalX, 2.3 + 0.11, 0);
-      cap.castShadow = true;
-      segmentGroup.add(cap);
+      const capPos = getWorldPos(postLocalX, 2.3 + 0.11, 0);
+      const capMat = new THREE.Matrix4().compose(
+        capPos,
+        new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rotationY, 0)),
+        new THREE.Vector3(1, 1, 1)
+      );
+      postCapMatrices.push(capMat);
 
       // Render pickets between this post and the next
       if (i < postCount) {
@@ -582,25 +854,24 @@ export class DerbyScene {
         for (let p = 1; p <= pickets; p++) {
           const picketLocalX = postLocalX + p * actualSpacing;
 
-          const picket = new THREE.Mesh(picketGeom, material);
-          picket.position.set(picketLocalX, 1.15, 0); // Y centered at 1.15 (0.25 to 2.05)
-          picket.castShadow = true;
-          segmentGroup.add(picket);
+          const picketPos = getWorldPos(picketLocalX, 1.15, 0);
+          const picketMat = new THREE.Matrix4().compose(
+            picketPos,
+            new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rotationY, 0)),
+            new THREE.Vector3(1, 1, 1)
+          );
+          picketMatrices.push(picketMat);
 
-          const picketCap = new THREE.Mesh(picketCapGeom, material);
-          picketCap.position.set(picketLocalX, 2.05 + 0.06, 0);
-          picketCap.castShadow = true;
-          segmentGroup.add(picketCap);
+          const picketCapPos = getWorldPos(picketLocalX, 2.05 + 0.06, 0);
+          const picketCapMat = new THREE.Matrix4().compose(
+            picketCapPos,
+            new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rotationY, 0)),
+            new THREE.Vector3(1, 1, 1)
+          );
+          picketCapMatrices.push(picketCapMat);
         }
       }
     }
-
-    // Position and rotate the segment group
-    const midpoint = start.clone().add(end).multiplyScalar(0.5);
-    segmentGroup.position.set(midpoint.x, 0, midpoint.z);
-    segmentGroup.rotation.y = rotationY;
-    
-    this.scene.add(segmentGroup);
   }
 
 
@@ -661,18 +932,24 @@ export class DerbyScene {
       }
     });
 
+    const postGeom = new THREE.CylinderGeometry(0.11, 0.14, 1.8, 8);
+    const postMatrices: THREE.Matrix4[] = [];
+
     railLines.forEach(({ radius }) => {
       const curve = this.createStadiumCurve(TRACK_STRAIGHT_HALF_LENGTH, radius, 0.9, 28);
       for (let index = 0; index < 76; index += 1) {
-        const post = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.11, 0.14, 1.8, 8),
-          railMaterial,
-        );
-        post.position.copy(curve.getPointAt(index / 76));
-        post.castShadow = true;
-        this.scene.add(post);
+        const pos = curve.getPointAt(index / 76);
+        const mat = new THREE.Matrix4().makeTranslation(pos.x, pos.y, pos.z);
+        postMatrices.push(mat);
       }
     });
+
+    if (postMatrices.length > 0) {
+      const instancedPosts = new THREE.InstancedMesh(postGeom, railMaterial, postMatrices.length);
+      instancedPosts.castShadow = true;
+      postMatrices.forEach((m, idx) => instancedPosts.setMatrixAt(idx, m));
+      this.scene.add(instancedPosts);
+    }
   }
 
   private addFinishLine() {
@@ -850,10 +1127,21 @@ export class DerbyScene {
   private tick = () => {
     const delta = Math.min(this.clock.getDelta(), 0.033);
 
+    // Progress time of day (1 full day-night cycle takes 120 seconds)
+    if (this.running) {
+      this.timeOfDay = (this.timeOfDay + (delta / 120.0) * 24.0) % 24.0;
+      this.onTimeUpdate?.(this.timeOfDay);
+    }
+
     this.updateCameraRail(delta);
     this.updateClouds(delta);
-    this.weatherEffect?.update(delta);
+    this.weatherManager?.update(delta, this.timeOfDay);
     this.skyline.update(delta, this.running);
+
+    // Enable floodlights automatically at night/sunset, or during rain/storm weather
+    const isNightOrSunset = this.timeOfDay >= 17.0 || this.timeOfDay < 7.5;
+    const lightsOn = this.activeWeatherType === 'rainy' || this.activeWeatherType === 'storm' || isNightOrSunset;
+    this.floodlights?.setLightsEnabled(lightsOn);
 
     if (this.running) {
       this.updateHorses(delta);
@@ -989,18 +1277,19 @@ export class DerbyScene {
       Math.sin(this.cameraRailAngle) * radius,
     );
 
-    const baseDirection = this.cameraTarget.clone().sub(this.camera.position).normalize();
-    const baseYaw = Math.atan2(baseDirection.x, baseDirection.z);
-    const basePitch = Math.asin(baseDirection.y);
+    this.cameraBaseDirection.subVectors(this.cameraTarget, this.camera.position).normalize();
+    const baseYaw = Math.atan2(this.cameraBaseDirection.x, this.cameraBaseDirection.z);
+    const basePitch = Math.asin(this.cameraBaseDirection.y);
     const yaw = baseYaw + this.freeLookYaw;
     const pitch = THREE.MathUtils.clamp(basePitch + this.freeLookPitch, -0.82, 0.58);
-    const lookDirection = new THREE.Vector3(
+    this.cameraLookDirection.set(
       Math.sin(yaw) * Math.cos(pitch),
       Math.sin(pitch),
       Math.cos(yaw) * Math.cos(pitch),
     );
 
-    this.camera.lookAt(this.camera.position.clone().add(lookDirection));
+    this.cameraLookTarget.copy(this.camera.position).add(this.cameraLookDirection);
+    this.camera.lookAt(this.cameraLookTarget);
   }
 
   private getLaneCenterRadius(laneIndex: number) {
@@ -1080,7 +1369,6 @@ export class DerbyScene {
   }
 
   private initDustParticles() {
-    const maxParticles = 250;
     const particleGeometry = new THREE.BoxGeometry(0.32, 0.32, 0.32);
     // Sand/dirt colored material, flat-shaded for low-poly feel
     const particleMaterial = new THREE.MeshStandardMaterial({
@@ -1091,17 +1379,16 @@ export class DerbyScene {
       depthWrite: false,
     });
 
-    this.dustParticles = new THREE.InstancedMesh(particleGeometry, particleMaterial, maxParticles);
-    this.dustParticles.castShadow = true;
+    this.dustParticles = new THREE.InstancedMesh(particleGeometry, particleMaterial, MAX_DUST_PARTICLES);
+    this.dustParticles.castShadow = false;
     this.scene.add(this.dustParticles);
 
     // Initialize the pool
-    const dummy = new THREE.Object3D();
-    dummy.position.set(0, -999, 0);
-    dummy.scale.setScalar(0);
-    dummy.updateMatrix();
+    this.dustDummy.position.set(0, -999, 0);
+    this.dustDummy.scale.setScalar(0);
+    this.dustDummy.updateMatrix();
 
-    for (let i = 0; i < maxParticles; i++) {
+    for (let i = 0; i < MAX_DUST_PARTICLES; i++) {
       this.particles.push({
         position: new THREE.Vector3(0, -999, 0),
         velocity: new THREE.Vector3(0, 0, 0),
@@ -1109,13 +1396,12 @@ export class DerbyScene {
         maxAge: 0.5,
         scale: 0,
       });
-      this.dustParticles.setMatrixAt(i, dummy.matrix);
+      this.dustParticles.setMatrixAt(i, this.dustDummy.matrix);
     }
     this.dustParticles.instanceMatrix.needsUpdate = true;
   }
 
   private spawnDust(position: THREE.Vector3, backwardDir: THREE.Vector3, count = 3) {
-    const maxParticles = 250;
     for (let i = 0; i < count; i++) {
       const p = this.particles[this.particleIndex];
       p.position.set(
@@ -1130,49 +1416,53 @@ export class DerbyScene {
       p.velocity.y = 0.8 + Math.random() * 1.2; // upward velocity
       
       // Add a bit of random side spread
-      const sideDir = new THREE.Vector3(-backwardDir.z, 0, backwardDir.x);
-      p.velocity.addScaledVector(sideDir, (Math.random() - 0.5) * 0.8);
+      this.dustSideDir.set(-backwardDir.z, 0, backwardDir.x);
+      p.velocity.addScaledVector(this.dustSideDir, (Math.random() - 0.5) * 0.8);
 
       p.age = 0;
       p.maxAge = 0.3 + Math.random() * 0.25; // 0.3 to 0.55 seconds
       p.scale = 0.5 + Math.random() * 0.5;   // random initial scale
 
-      this.particleIndex = (this.particleIndex + 1) % maxParticles;
+      if (!this.activeDustSet.has(this.particleIndex)) {
+        this.activeDustSet.add(this.particleIndex);
+        this.activeDustIndices.push(this.particleIndex);
+      }
+
+      this.particleIndex = (this.particleIndex + 1) % MAX_DUST_PARTICLES;
     }
   }
 
   private updateParticles(delta: number) {
     if (!this.dustParticles) return;
+    if (this.activeDustIndices.length === 0) return;
 
-    const dummy = new THREE.Object3D();
-    const maxParticles = 250;
+    for (let index = this.activeDustIndices.length - 1; index >= 0; index -= 1) {
+      const particleIndex = this.activeDustIndices[index];
+      const p = this.particles[particleIndex];
 
-    for (let i = 0; i < maxParticles; i++) {
-      const p = this.particles[i];
-      if (p.age < p.maxAge) {
-        // physics
-        p.age += delta;
-        p.position.addScaledVector(p.velocity, delta);
+      p.age += delta;
 
-        // drag and gravity
-        p.velocity.y -= delta * 0.8; // gravity pulls dust down slowly
-        p.velocity.multiplyScalar(0.93); // general air resistance slows it down
-
-        const progress = p.age / p.maxAge;
-        // dust puffs expand slightly then shrink/fade
-        const scale = p.scale * (1.0 - progress) * (1.0 + progress * 0.5);
-
-        dummy.position.copy(p.position);
-        dummy.scale.setScalar(scale);
-        dummy.updateMatrix();
-        this.dustParticles.setMatrixAt(i, dummy.matrix);
-      } else {
-        // dead particle, place out of view
-        dummy.position.set(0, -999, 0);
-        dummy.scale.setScalar(0);
-        dummy.updateMatrix();
-        this.dustParticles.setMatrixAt(i, dummy.matrix);
+      if (p.age >= p.maxAge) {
+        this.dustDummy.position.set(0, -999, 0);
+        this.dustDummy.scale.setScalar(0);
+        this.dustDummy.updateMatrix();
+        this.dustParticles.setMatrixAt(particleIndex, this.dustDummy.matrix);
+        this.activeDustIndices.splice(index, 1);
+        this.activeDustSet.delete(particleIndex);
+        continue;
       }
+
+      p.position.addScaledVector(p.velocity, delta);
+      p.velocity.y -= delta * 0.8;
+      p.velocity.multiplyScalar(0.93);
+
+      const progress = p.age / p.maxAge;
+      const scale = p.scale * (1.0 - progress) * (1.0 + progress * 0.5);
+
+      this.dustDummy.position.copy(p.position);
+      this.dustDummy.scale.setScalar(scale);
+      this.dustDummy.updateMatrix();
+      this.dustParticles.setMatrixAt(particleIndex, this.dustDummy.matrix);
     }
 
     this.dustParticles.instanceMatrix.needsUpdate = true;
@@ -1259,10 +1549,10 @@ export class DerbyScene {
         const posY = oy + (Math.random() - 0.5) * 0.3;
         const posZ = oz + (Math.random() - 0.5) * 0.5;
 
-        // Use Dodecahedron for clean, low-poly facets
-        const puffGeom = new THREE.DodecahedronGeometry(radius, 1);
-        const puffMesh = new THREE.Mesh(puffGeom, cloudMaterial);
+        // Use shared unit Dodecahedron geometry scaled per puff to avoid allocating unique buffers
+        const puffMesh = new THREE.Mesh(UNIT_CLOUD_PUFF_GEOM, cloudMaterial);
         puffMesh.position.set(posX, posY, posZ);
+        puffMesh.scale.setScalar(radius);
         // Random orientation for variety in facets
         puffMesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
         puffMesh.castShadow = false;
@@ -1272,7 +1562,7 @@ export class DerbyScene {
 
         puffsList.push({
           mesh: puffMesh,
-          baseScale: new THREE.Vector3(1, 1, 1),
+          baseScale: new THREE.Vector3(radius, radius, radius),
           phase: Math.random() * Math.PI * 2,
           speed: 0.5 + Math.random() * 0.8,
           amp: 0.05 + Math.random() * 0.08,
@@ -1344,15 +1634,10 @@ export class DerbyScene {
         }
       });
 
-      // Scale group down as it fades out/in (breathing dispersing effect)
+      // 4. Scale group down as it fades out/in, adding a gentle group-level breathing pulse (avoiding expensive individual puff CPU updates)
       const scaleFactor = 0.2 + 0.8 * fadeFactor;
-      cloud.group.scale.setScalar(cloud.baseScale * scaleFactor);
-
-      // 4. Animate individual puffs within the cloud (breathing/morphing effect)
-      cloud.puffs.forEach((puff) => {
-        const scaleMult = 1.0 + Math.sin(time * puff.speed + puff.phase) * puff.amp;
-        puff.mesh.scale.copy(puff.baseScale).multiplyScalar(scaleMult);
-      });
+      const pulse = 1.0 + Math.sin(time * 0.35 + cloud.baseY) * 0.05;
+      cloud.group.scale.setScalar(cloud.baseScale * scaleFactor * pulse);
 
       // 5. If cloud goes past maxX, reset it to minX and randomize its parameters
       if (cloud.group.position.x > cloud.maxX) {

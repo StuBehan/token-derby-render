@@ -1,12 +1,30 @@
 import * as THREE from 'three';
 
+// Warning light blink timing configuration (in seconds)
+const BLINK_PERIOD = 4.8;
+const FLASH_DURATION = 0.3;
+
 export class LondonSkyline extends THREE.Group {
   private londonEyeWheel?: THREE.Group;
   private londonEyeCapsules: THREE.Group[] = [];
 
+  // Warning Lights Beacons
+  private warningLights: THREE.Mesh[] = [];
+  private blinkTimer = 0.0;
+  private lightsOn = true;
+
+  // Shared geometry/material for beacon efficiency
+  private beaconGeom = new THREE.BoxGeometry(0.4, 0.4, 0.4);
+  private redLightMaterial = new THREE.MeshBasicMaterial({
+    color: 0xff0000,
+    toneMapped: false, // Glow bright in HDR/Bloom
+    fog: false,        // Cut through weather fog
+  });
+
   constructor() {
     super();
     this.buildSkyline();
+    this.buildHorizonFill();
   }
 
   private buildSkyline() {
@@ -59,6 +77,13 @@ export class LondonSkyline extends THREE.Group {
     finial.position.y = 63.0;
     bigBen.add(finial);
 
+    // Blinking red warning beacon at the very tip of Big Ben
+    const bigBenLight = new THREE.Mesh(this.beaconGeom, this.redLightMaterial);
+    bigBenLight.position.set(0, 65.2, 0);
+    bigBenLight.userData = { phaseOffset: 0.08 * BLINK_PERIOD };
+    bigBen.add(bigBenLight);
+    this.warningLights.push(bigBenLight);
+
     this.add(bigBen);
 
     // 2. The Shard - positioned far North-East
@@ -82,6 +107,13 @@ export class LondonSkyline extends THREE.Group {
     wing2.position.set(2, 29, -2);
     wing2.rotation.y = -0.5;
     shard.add(wing2);
+
+    // Blinking red warning beacon at the Shard peak
+    const shardLight = new THREE.Mesh(this.beaconGeom, this.redLightMaterial);
+    shardLight.position.set(0, 78.2, 0);
+    shardLight.userData = { phaseOffset: 0.5 * BLINK_PERIOD };
+    shard.add(shardLight);
+    this.warningLights.push(shardLight);
 
     this.add(shard);
 
@@ -127,6 +159,25 @@ export class LondonSkyline extends THREE.Group {
     const innerRing = new THREE.Mesh(new THREE.TorusGeometry(23.5, 0.25, 4, 32), skylineMaterial);
     innerRing.castShadow = true;
     this.londonEyeWheel.add(innerRing);
+
+    // Static blinking red warning beacon on top of the London Eye central hub spindle
+    const hubLight = new THREE.Mesh(this.beaconGeom, this.redLightMaterial);
+    hubLight.position.set(0, 50.5, 0); // spindle is at y=48.0, spindle diameter/legs height
+    hubLight.userData = { phaseOffset: 0.25 * BLINK_PERIOD };
+    londonEye.add(hubLight);
+    this.warningLights.push(hubLight);
+
+    // 8 blinking red warning beacons distributed around the outer rim of the London Eye wheel (rotates with it)
+    const numEyeLights = 8;
+    for (let i = 0; i < numEyeLights; i++) {
+      const angle = (i / numEyeLights) * Math.PI * 2;
+      const eyeLight = new THREE.Mesh(this.beaconGeom, this.redLightMaterial);
+      // Outer ring has radius 26.0, mount slightly offset (radius 26.3)
+      eyeLight.position.set(Math.cos(angle) * 26.3, Math.sin(angle) * 26.3, 0);
+      eyeLight.userData = { phaseOffset: (i / numEyeLights) * BLINK_PERIOD }; // Chasing light loop
+      this.londonEyeWheel.add(eyeLight);
+      this.warningLights.push(eyeLight);
+    }
 
     // 8 spokes
     for (let i = 0; i < 8; i++) {
@@ -203,7 +254,7 @@ export class LondonSkyline extends THREE.Group {
     londonEye.add(this.londonEyeWheel);
     this.add(londonEye);
 
-    // 4. Distant classic spires/buildings (Westminster silhouette block)
+    // 4. Distant spires/buildings (Westminster silhouette block)
     const westminster = new THREE.Group();
     westminster.position.set(-155, 0, -170);
 
@@ -230,6 +281,154 @@ export class LondonSkyline extends THREE.Group {
     this.add(westminster);
   }
 
+  private buildHorizonFill() {
+    // Deterministic noise for consistent layout
+    const noise = (i: number, salt: number) => {
+      const v = Math.sin(i * 127.1 + salt * 311.7) * 43758.5453;
+      return v - Math.floor(v);
+    };
+
+    // Materials – 3 tonal variations for depth layering
+    const horizonMats = [
+      new THREE.MeshStandardMaterial({ color: 0x5e6b73, roughness: 0.92, metalness: 0.08 }),
+      new THREE.MeshStandardMaterial({ color: 0x6d7980, roughness: 0.94, metalness: 0.06 }),
+      new THREE.MeshStandardMaterial({ color: 0x7a868d, roughness: 0.96, metalness: 0.04 }),
+    ];
+
+    const sides = [
+      // North edge (behind track, left to right)
+      { label: 'N', startX: -180, startZ: -155, dx: 1, dz: 0, normalX: 0, normalZ: -1, length: 360, facingY: 0 },
+      // South edge
+      { label: 'S', startX: -180, startZ: 155, dx: 1, dz: 0, normalX: 0, normalZ: 1, length: 360, facingY: Math.PI },
+      // West edge
+      { label: 'W', startX: -175, startZ: -150, dx: 0, dz: 1, normalX: -1, normalZ: 0, length: 300, facingY: -Math.PI / 2 },
+      // East edge
+      { label: 'E', startX: 175, startZ: -150, dx: 0, dz: 1, normalX: 1, normalZ: 0, length: 300, facingY: Math.PI / 2 },
+    ];
+
+    // Exclusion zones where named landmarks sit
+    const exclusions = [
+      { x: -110, z: -165, r: 20 },  // Big Ben
+      { x: 25,   z: -185, r: 35 },  // London Eye
+      { x: 130,  z: -175, r: 22 },  // Shard
+      { x: -155, z: -170, r: 25 },  // Westminster
+    ];
+
+    const isExcluded = (px: number, pz: number) => {
+      return exclusions.some(e => {
+        const dx = px - e.x;
+        const dz = pz - e.z;
+        return Math.sqrt(dx * dx + dz * dz) < e.r;
+      });
+    };
+
+    const rowDepths = [0, 14, 30];
+    const rowHeightRanges: [number, number][] = [[8, 22], [14, 32], [18, 45]];
+    const rowSpacings = [8, 10, 12];
+
+    let globalIdx = 0;
+
+    for (const side of sides) {
+      for (let row = 0; row < 3; row++) {
+        const mat = horizonMats[row];
+        const depth = rowDepths[row];
+        const [minH, maxH] = rowHeightRanges[row];
+        const spacing = rowSpacings[row];
+        const steps = Math.floor(side.length / spacing);
+
+        for (let i = 0; i < steps; i++) {
+          const t = (i + 0.5) / steps;
+          const bx = side.startX + side.dx * t * side.length + side.normalX * depth;
+          const bz = side.startZ + side.dz * t * side.length + side.normalZ * depth;
+
+          if (isExcluded(bx, bz)) continue;
+
+          const n = noise(globalIdx, row * 17 + 3);
+          globalIdx++;
+
+          if (n < 0.12) continue;
+
+          const height = minH + noise(globalIdx, 7) * (maxH - minH);
+          const width = spacing * (0.55 + noise(globalIdx, 11) * 0.4);
+          const blockDepth = 5 + noise(globalIdx, 13) * 6;
+
+          // Main building block
+          const block = new THREE.Mesh(
+            new THREE.BoxGeometry(width, height, blockDepth),
+            mat,
+          );
+          block.position.set(bx, height / 2, bz);
+          block.rotation.y = side.facingY;
+          block.castShadow = true;
+          this.add(block);
+
+          let peakY = height;
+
+          // Some buildings get a taller tower/penthouse on top (20% chance)
+          if (noise(globalIdx, 19) > 0.80) {
+            const towerWidth = width * (0.3 + noise(globalIdx, 23) * 0.3);
+            const towerHeight = height * (0.3 + noise(globalIdx, 29) * 0.5);
+            const tower = new THREE.Mesh(
+              new THREE.BoxGeometry(towerWidth, towerHeight, blockDepth * 0.5),
+              mat,
+            );
+            tower.position.set(bx, height + towerHeight / 2, bz);
+            tower.rotation.y = side.facingY;
+            tower.castShadow = true;
+            this.add(tower);
+
+            if (height + towerHeight > peakY) {
+              peakY = height + towerHeight;
+            }
+          }
+
+          // Some buildings get a pitched roof cap (30% chance on shorter buildings)
+          if (height < 20 && noise(globalIdx, 31) > 0.70) {
+            const roofHeight = 2.5 + noise(globalIdx, 37) * 2.5;
+            const roof = new THREE.Mesh(
+              new THREE.ConeGeometry(width * 0.52, roofHeight, 4),
+              mat,
+            );
+            roof.position.set(bx, height + roofHeight / 2, bz);
+            roof.rotation.y = side.facingY + Math.PI / 4;
+            roof.castShadow = true;
+            this.add(roof);
+
+            if (height + roofHeight > peakY) {
+              peakY = height + roofHeight;
+            }
+          }
+
+          // Some taller buildings get a thin spire (15% chance on row 2+)
+          if (row >= 1 && height > 25 && noise(globalIdx, 41) > 0.85) {
+            const spireH = 6 + noise(globalIdx, 43) * 10;
+            const spire = new THREE.Mesh(
+              new THREE.ConeGeometry(0.8, spireH, 4),
+              mat,
+            );
+            spire.position.set(bx, height + spireH / 2, bz);
+            spire.rotation.y = Math.PI / 4;
+            this.add(spire);
+
+            if (height + spireH > peakY) {
+              peakY = height + spireH;
+            }
+          }
+
+          // Add a blinking warning light if the building's final peak height is tall (peakY > 30.0)
+          if (peakY > 30.0) {
+            const light = new THREE.Mesh(this.beaconGeom, this.redLightMaterial);
+            light.position.set(bx, peakY + 0.4, bz);
+            // Assign pseudo-random timing offset based on global index to desynchronize them over the period
+            light.userData = { phaseOffset: (((globalIdx * 7.3) % 100) / 100) * BLINK_PERIOD };
+            this.add(light);
+            this.warningLights.push(light);
+          }
+        }
+      }
+    }
+  }
+
   public update(delta: number, running: boolean) {
     if (running && this.londonEyeWheel) {
       const rotationAmount = delta * 0.03;
@@ -240,5 +439,17 @@ export class LondonSkyline extends THREE.Group {
         capsule.rotation.z = -this.londonEyeWheel!.rotation.z;
       });
     }
+
+    // Update desynchronized warning lights visibility based on their respective phase offsets
+    this.blinkTimer += delta;
+    if (this.blinkTimer >= BLINK_PERIOD) {
+      this.blinkTimer = Math.max(0, this.blinkTimer - BLINK_PERIOD);
+    }
+
+    this.warningLights.forEach((light) => {
+      const offset = light.userData.phaseOffset || 0.0;
+      const localTime = (this.blinkTimer + offset) % BLINK_PERIOD;
+      light.visible = localTime < FLASH_DURATION;
+    });
   }
 }

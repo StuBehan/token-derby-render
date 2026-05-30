@@ -164,6 +164,10 @@ export class Grandstand extends THREE.Group {
       });
     }
 
+    const pedestalMatrices: THREE.Matrix4[] = [];
+    const cushionMatrices: THREE.Matrix4[][] = seatMaterials.map(() => []);
+    const backMatrices: THREE.Matrix4[][] = seatMaterials.map(() => []);
+
     for (let row = 0; row < R; row += 1) {
       const tierDepth = 2.15;
       
@@ -182,7 +186,7 @@ export class Grandstand extends THREE.Group {
 
         const seatWidth = Math.max(0.2, segment.width - 0.4);
         
-        // Draw individual seats inside this segment
+        // Collect seat transforms inside this segment
         const spacing = 0.9;
         const columns = Math.floor(seatWidth / spacing);
         const startX = segment.x - ((columns - 1) * spacing) / 2;
@@ -193,29 +197,20 @@ export class Grandstand extends THREE.Group {
           const seatX = startX + column * spacing;
 
           // Pedestal (metal bracket)
-          const pedestal = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.32, 0.15), shadowMaterial);
-          pedestal.position.set(seatX, yPositionSeat - 0.22, zPositionSeat - 0.05);
-          pedestal.castShadow = true;
-          this.add(pedestal);
+          const pedMat = new THREE.Matrix4().makeTranslation(seatX, yPositionSeat - 0.22, zPositionSeat - 0.05);
+          pedestalMatrices.push(pedMat);
 
           // Seat Cushion
-          const cushion = new THREE.Mesh(
-            new THREE.BoxGeometry(0.68, 0.08, 0.54),
-            seatMaterials[row % seatMaterials.length],
-          );
-          cushion.position.set(seatX, yPositionSeat - 0.06, zPositionSeat - 0.05);
-          cushion.castShadow = true;
-          this.add(cushion);
+          const colorIdx = row % seatMaterials.length;
+          const cushMat = new THREE.Matrix4().makeTranslation(seatX, yPositionSeat - 0.06, zPositionSeat - 0.05);
+          cushionMatrices[colorIdx].push(cushMat);
 
           // Seat Back
-          const back = new THREE.Mesh(
-            new THREE.BoxGeometry(0.68, 0.50, 0.08),
-            seatMaterials[row % seatMaterials.length],
-          );
-          back.position.set(seatX, yPositionSeat + 0.18, zPositionSeat - 0.28);
-          back.rotation.x = -0.12; // slight recline
-          back.castShadow = true;
-          this.add(back);
+          const backPos = new THREE.Vector3(seatX, yPositionSeat + 0.18, zPositionSeat - 0.28);
+          const backRot = new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.12, 0, 0));
+          const backScl = new THREE.Vector3(1, 1, 1);
+          const backMat = new THREE.Matrix4().compose(backPos, backRot, backScl);
+          backMatrices[colorIdx].push(backMat);
         }
 
         crowd.addRow(
@@ -232,6 +227,40 @@ export class Grandstand extends THREE.Group {
     // Bake all spectator instances into GPU-batched InstancedMesh draw calls
     crowd.build();
     this.add(crowd);
+
+    // Bake all seat components into GPU-batched InstancedMesh draw calls to optimize draw calls
+    if (pedestalMatrices.length > 0) {
+      const pedestalGeom = new THREE.BoxGeometry(0.15, 0.32, 0.15);
+      const pedestalMesh = new THREE.InstancedMesh(pedestalGeom, shadowMaterial, pedestalMatrices.length);
+      pedestalMesh.castShadow = true;
+      pedestalMesh.receiveShadow = true;
+      pedestalMatrices.forEach((m, idx) => pedestalMesh.setMatrixAt(idx, m));
+      this.add(pedestalMesh);
+    }
+
+    const cushionGeom = new THREE.BoxGeometry(0.68, 0.08, 0.54);
+    for (let i = 0; i < seatMaterials.length; i++) {
+      const matrices = cushionMatrices[i];
+      if (matrices.length > 0) {
+        const cushionMesh = new THREE.InstancedMesh(cushionGeom, seatMaterials[i], matrices.length);
+        cushionMesh.castShadow = true;
+        cushionMesh.receiveShadow = true;
+        matrices.forEach((m, idx) => cushionMesh.setMatrixAt(idx, m));
+        this.add(cushionMesh);
+      }
+    }
+
+    const backGeom = new THREE.BoxGeometry(0.68, 0.50, 0.08);
+    for (let i = 0; i < seatMaterials.length; i++) {
+      const matrices = backMatrices[i];
+      if (matrices.length > 0) {
+        const backMesh = new THREE.InstancedMesh(backGeom, seatMaterials[i], matrices.length);
+        backMesh.castShadow = true;
+        backMesh.receiveShadow = true;
+        matrices.forEach((m, idx) => backMesh.setMatrixAt(idx, m));
+        this.add(backMesh);
+      }
+    }
 
     // 7. Stair Runs
     for (const x of aisleXPositions) {
