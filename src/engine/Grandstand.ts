@@ -16,6 +16,10 @@ export interface GrandstandConfig {
 
 export class Grandstand extends THREE.Group {
   private readonly config: Required<GrandstandConfig>;
+  private scoreboardCanvas!: HTMLCanvasElement;
+  private scoreboardCtx!: CanvasRenderingContext2D;
+  private scoreboardTexture!: THREE.CanvasTexture;
+  private scrollOffset = 0;
 
   constructor(config: GrandstandConfig = {}) {
     super();
@@ -308,6 +312,27 @@ export class Grandstand extends THREE.Group {
     frontWall.receiveShadow = true;
     this.add(frontWall);
 
+    // Scoreboard metal frame/housing
+    const frameGeo = new THREE.BoxGeometry(standWidth * 0.65 + 0.32, 3.00 + 0.16, 0.08);
+    const frameMesh = new THREE.Mesh(frameGeo, shadowMaterial);
+    frameMesh.position.set(0, 1.58, 7.30);
+    this.add(frameMesh);
+
+    // 10. Scoreboard LED Ticker Board
+    this.scoreboardCanvas = document.createElement('canvas');
+    this.scoreboardCanvas.width = 4096;
+    this.scoreboardCanvas.height = 256;
+    this.scoreboardCtx = this.scoreboardCanvas.getContext('2d')!;
+    this.scoreboardTexture = new THREE.CanvasTexture(this.scoreboardCanvas);
+
+    const tickerMaterial = new THREE.MeshBasicMaterial({
+      map: this.scoreboardTexture,
+    });
+
+    const tickerBoard = new THREE.Mesh(new THREE.BoxGeometry(standWidth * 0.65, 3.00, 0.05), tickerMaterial);
+    tickerBoard.position.set(0, 1.58, 7.35); // flush on frontWall
+    this.add(tickerBoard);
+
     const frontRail = new THREE.Mesh(new THREE.BoxGeometry(standWidth - 0.6, 0.15, 0.35), railMaterial);
     frontRail.position.set(0, 3.8, 7.0);
     frontRail.castShadow = true;
@@ -558,5 +583,44 @@ export class Grandstand extends THREE.Group {
     }
   }
 
+  public updateScoreboard(delta: number, text: string) {
+    if (!this.scoreboardCtx) return;
 
+    const ctx = this.scoreboardCtx;
+    const canvas = this.scoreboardCanvas;
+
+    // Clear background with a dark LED green color
+    ctx.fillStyle = '#080c06';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Draw borders/grid layout for a retro scoreboard appearance
+    ctx.strokeStyle = '#1e330a';
+    ctx.lineWidth = 12;
+    ctx.strokeRect(12, 12, canvas.width - 24, canvas.height - 24);
+
+    // Draw glowing red LED text
+    ctx.fillStyle = '#ff2b2b';
+    ctx.shadowColor = '#ff2b2b';
+    ctx.shadowBlur = 12;
+    ctx.font = 'bold 180px monospace';
+    ctx.textBaseline = 'middle';
+
+    // Calculate scroll position
+    this.scrollOffset -= delta * 1280.0; // scroll speed (pixels per second, scaled up for wider canvas width)
+    
+    // Measure text width to wrap around
+    const textWidth = ctx.measureText(text).width;
+    if (this.scrollOffset < -textWidth) {
+      this.scrollOffset = canvas.width;
+    }
+
+    // Draw text
+    ctx.fillText(text, this.scrollOffset, canvas.height / 2 + 6);
+
+    // Reset shadow blur
+    ctx.shadowBlur = 0;
+
+    // Trigger texture upload on GPU
+    this.scoreboardTexture.needsUpdate = true;
+  }
 }

@@ -49,6 +49,7 @@ export class DerbyScene {
   // Skyline and weather components
   private skyline!: LondonSkyline;
   private floodlights!: Floodlights;
+  private grandstand!: Grandstand;
   private activeWeatherType: WeatherType = 'light_cloud';
   private weatherManager!: WeatherManager;
   private skyMesh!: THREE.Mesh;
@@ -244,7 +245,8 @@ export class DerbyScene {
       trackOuterRadius: TRACK_OUTER_RADIUS,
     });
     this.scene.add(this.floodlights);
-    this.scene.add(new Grandstand());
+    this.grandstand = new Grandstand();
+    this.scene.add(this.grandstand);
     this.addFinishLine();
     this.initDustParticles();
     this.addHorses();
@@ -1024,6 +1026,20 @@ export class DerbyScene {
       this.updateParticles(delta);
     }
 
+    if (this.grandstand) {
+      const sortedHorses = [...this.horses].sort((a, b) => b.progress - a.progress);
+      const leaderName = sortedHorses[0] ? this.getHorseName(sortedHorses[0].index) : 'NONE';
+      const runnerUpName = sortedHorses[1] ? this.getHorseName(sortedHorses[1].index) : 'NONE';
+      
+      const hours = Math.floor(this.timeOfDay);
+      const minutes = Math.floor((this.timeOfDay % 1) * 60);
+      const timeStr = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+      
+      const leaderText = `  * LEADER: ${leaderName.toUpperCase()} (LANE ${sortedHorses[0].index + 1})  * 2ND: ${runnerUpName.toUpperCase()} (LANE ${sortedHorses[1].index + 1})  * TIME: ${timeStr}  * WEATHER: ${this.activeWeatherType.replace('_', ' ').toUpperCase()}  `;
+      
+      this.grandstand.updateScoreboard(delta, leaderText);
+    }
+
     this.renderer.render(this.scene, this.camera);
     this.updatePerfPanel(delta);
 
@@ -1233,6 +1249,11 @@ export class DerbyScene {
 
     this.selectedHorse = null;
     this.onHorseSelected?.(null);
+  }
+
+  private getHorseName(index: number): string {
+    const names = ["Glinting Gold", "Blue Bullet", "Crimson Comet", "Green Gale", "Purple Pegasus", "Orange Outlaw"];
+    return names[index % names.length];
   }
 
   private updateCameraRail(delta: number) {
