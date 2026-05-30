@@ -21,7 +21,8 @@ body {
   overflow: hidden;
 }
 
-button {
+button,
+select {
   min-width: 84px;
   height: 40px;
   border: 1px solid rgba(255, 255, 255, 0.28);
@@ -30,11 +31,20 @@ button {
   background: rgba(22, 26, 20, 0.72);
   font: inherit;
   font-size: 0.9rem;
-  cursor: pointer;
   backdrop-filter: blur(12px);
 }
 
-button:hover {
+button {
+  cursor: pointer;
+}
+
+select {
+  min-width: 132px;
+  padding: 0 12px;
+}
+
+button:hover,
+select:hover {
   background: rgba(255, 255, 255, 0.16);
 }
 
@@ -109,4 +119,3 @@ button:hover {
     justify-content: flex-start;
   }
 }
-
