@@ -6,6 +6,7 @@ import { Bench } from './Bench';
 import { TerraceHouse } from './TerraceHouse';
 import { LondonSkyline } from './LondonSkyline';
 import { Floodlights } from './Floodlights';
+import { FinishLine } from './FinishLine';
 import { WeatherManager, WeatherType, RainEffect, LightningEffect } from './Weather';
 
 type ParkPath = {
@@ -955,14 +956,6 @@ export class DerbyScene {
   }
 
   private addFinishLine() {
-    // 1. Checkerboard Finish Line on Ground
-    const trackWidth = TRACK_OUTER_RADIUS - TRACK_INNER_RADIUS; // 16
-    const checkerCount = 16;
-    const checkerWidth = trackWidth / checkerCount; // 1.0
-    const checkerDepth = 0.28;
-    const startZ = TRACK_INNER_RADIUS;
-
-    const blackMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.6 });
     const whiteMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 });
     const goldMat = new THREE.MeshStandardMaterial({ color: 0xd7ae3f, roughness: 0.35, metalness: 0.6 });
     const redMat = new THREE.MeshStandardMaterial({ color: 0xb8493b, roughness: 0.5 });
@@ -970,119 +963,17 @@ export class DerbyScene {
     const ironMat = new THREE.MeshStandardMaterial({ color: 0x111719, roughness: 0.55 });
     const bannerMat = new THREE.MeshStandardMaterial({ color: 0xf5efe0, roughness: 0.45 });
 
-    for (let row = 0; row < 2; row++) {
-      for (let col = 0; col < checkerCount; col++) {
-        const isWhite = (row + col) % 2 === 0;
-        const sq = new THREE.Mesh(
-          new THREE.BoxGeometry(checkerDepth, 0.05, checkerWidth),
-          isWhite ? whiteMat : blackMat
-        );
-        const zPos = startZ + col * checkerWidth + checkerWidth / 2;
-        const xPos = TRACK_STRAIGHT_HALF_LENGTH + (row - 0.5) * checkerDepth;
-        sq.position.set(xPos, 0.065, zPos);
-        sq.receiveShadow = true;
-        this.scene.add(sq);
+    const finishLine = new FinishLine(
+      new THREE.Vector3(-TRACK_STRAIGHT_HALF_LENGTH, 0, -TRACK_CENTER_RADIUS),
+      { whiteMat, goldMat, redMat, stoneMat, ironMat, bannerMat },
+      {
+        trackWidth: TRACK_OUTER_RADIUS - TRACK_INNER_RADIUS,
+        trackInnerRadius: TRACK_INNER_RADIUS,
+        trackOuterRadius: TRACK_OUTER_RADIUS,
+        trackCenterRadius: TRACK_CENTER_RADIUS,
       }
-    }
-
-    // 2. Pillars / Posts (Truss Columns)
-    for (const z of [TRACK_INNER_RADIUS - 1.1, TRACK_OUTER_RADIUS + 1.1]) {
-      // Concrete Pedestal
-      const pedestal = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.4, 0.8), stoneMat);
-      pedestal.position.set(TRACK_STRAIGHT_HALF_LENGTH, 0.7, z);
-      pedestal.castShadow = true;
-      pedestal.receiveShadow = true;
-      this.scene.add(pedestal);
-
-      // Tapered Column
-      const column = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.28, 5.6, 8), ironMat);
-      column.position.set(TRACK_STRAIGHT_HALF_LENGTH, 4.2, z);
-      column.castShadow = true;
-      this.scene.add(column);
-
-      // Decorative Gold Rings
-      for (const yRing of [2.8, 4.2, 5.6]) {
-        const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.1, 8), goldMat);
-        ring.position.set(TRACK_STRAIGHT_HALF_LENGTH, yRing, z);
-        this.scene.add(ring);
-      }
-
-      // Gold Sphere Finial
-      const finial = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 8), goldMat);
-      finial.position.set(TRACK_STRAIGHT_HALF_LENGTH, 7.1, z);
-      finial.castShadow = true;
-      this.scene.add(finial);
-
-      // Flag Pole
-      const flagPole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.4, 6), ironMat);
-      flagPole.position.set(TRACK_STRAIGHT_HALF_LENGTH, 7.8, z);
-      flagPole.castShadow = true;
-      this.scene.add(flagPole);
-
-      // Red Triangular Flag
-      const flag = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.4, 0.03), redMat);
-      flag.position.set(TRACK_STRAIGHT_HALF_LENGTH + 0.4, 8.2, z);
-      flag.castShadow = true;
-      this.scene.add(flag);
-    }
-
-    // 3. Overhead Banner
-    const z1 = TRACK_INNER_RADIUS - 1.1;
-    const z2 = TRACK_OUTER_RADIUS + 1.1;
-    const bannerCenterZ = (z1 + z2) / 2; // 24
-    const bannerWidth = z2 - z1; // 18.2 (exactly the distance between column centers)
-    const boardWidth = bannerWidth - 0.8; // 17.4 (fits inside the columns)
-
-    // Truss Frame (top and bottom horizontal rails)
-    const topRail = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, bannerWidth), ironMat);
-    topRail.position.set(TRACK_STRAIGHT_HALF_LENGTH, 7.45, bannerCenterZ);
-    topRail.castShadow = true;
-    this.scene.add(topRail);
-
-    const bottomRail = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, bannerWidth), ironMat);
-    bottomRail.position.set(TRACK_STRAIGHT_HALF_LENGTH, 6.15, bannerCenterZ);
-    bottomRail.castShadow = true;
-    this.scene.add(bottomRail);
-
-    // Banner Board
-    const banner = new THREE.Mesh(new THREE.BoxGeometry(0.28, 1.2, boardWidth), bannerMat);
-    banner.position.set(TRACK_STRAIGHT_HALF_LENGTH, 6.8, bannerCenterZ);
-    banner.castShadow = true;
-    this.scene.add(banner);
-
-    // Checkerboard ends of the banner board
-    for (const side of [-1, 1]) {
-      const endZ = bannerCenterZ + side * (boardWidth / 2 - 0.25);
-      for (let r = 0; r < 2; r++) {
-        for (let c = 0; c < 2; c++) {
-          const isBlack = (r + c) % 2 === 0;
-          const block = new THREE.Mesh(
-            new THREE.BoxGeometry(0.32, 0.5, 0.5),
-            isBlack ? blackMat : whiteMat
-          );
-          block.position.set(
-            TRACK_STRAIGHT_HALF_LENGTH,
-            6.8 + (r - 0.5) * 0.5,
-            endZ + (c - 0.5) * 0.5
-          );
-          this.scene.add(block);
-        }
-      }
-    }
-
-    // Rosette / Crest (Center Medallion)
-    const medallionRing = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.65, 0.12, 8), goldMat);
-    medallionRing.position.set(TRACK_STRAIGHT_HALF_LENGTH + 0.18, 6.8, bannerCenterZ);
-    medallionRing.rotation.z = Math.PI / 2;
-    medallionRing.rotation.y = 0;
-    medallionRing.castShadow = true;
-    this.scene.add(medallionRing);
-
-    const medallionCenter = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.16, 8), redMat);
-    medallionCenter.position.set(TRACK_STRAIGHT_HALF_LENGTH + 0.20, 6.8, bannerCenterZ);
-    medallionCenter.rotation.z = Math.PI / 2;
-    medallionCenter.castShadow = true;
-    this.scene.add(medallionCenter);
+    );
+    this.scene.add(finishLine.group);
   }
 
   private addHorses() {
