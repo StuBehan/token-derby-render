@@ -212,8 +212,8 @@ export class Floodlights extends THREE.Group {
       spotlight.target = trackTarget;
 
       spotlight.castShadow = true;
-      spotlight.shadow.mapSize.width = 1024;
-      spotlight.shadow.mapSize.height = 1024;
+      spotlight.shadow.mapSize.width = 512;
+      spotlight.shadow.mapSize.height = 512;
       spotlight.shadow.camera.near = 10;
       spotlight.shadow.camera.far = 250;
       spotlight.shadow.bias = -0.0006;

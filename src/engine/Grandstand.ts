@@ -174,13 +174,13 @@ export class Grandstand extends THREE.Group {
       for (const segment of segments) {
         const tread = new THREE.Mesh(new THREE.BoxGeometry(segment.width, 0.32, tierDepth), concreteMaterial);
         tread.position.set(segment.x, 3.24 + row * 1.25, 4.9 - row * 1.85);
-        tread.castShadow = true;
+        tread.castShadow = false;
         tread.receiveShadow = true;
         this.add(tread);
 
         const riser = new THREE.Mesh(new THREE.BoxGeometry(segment.width, 1.18, 0.34), concreteMaterial);
         riser.position.set(segment.x, 2.8 + row * 1.25, 5.82 - row * 1.85);
-        riser.castShadow = true;
+        riser.castShadow = false;
         riser.receiveShadow = true;
         this.add(riser);
 
@@ -232,7 +232,7 @@ export class Grandstand extends THREE.Group {
     if (pedestalMatrices.length > 0) {
       const pedestalGeom = new THREE.BoxGeometry(0.15, 0.32, 0.15);
       const pedestalMesh = new THREE.InstancedMesh(pedestalGeom, shadowMaterial, pedestalMatrices.length);
-      pedestalMesh.castShadow = true;
+      pedestalMesh.castShadow = false;
       pedestalMesh.receiveShadow = true;
       pedestalMatrices.forEach((m, idx) => pedestalMesh.setMatrixAt(idx, m));
       this.add(pedestalMesh);
@@ -243,7 +243,7 @@ export class Grandstand extends THREE.Group {
       const matrices = cushionMatrices[i];
       if (matrices.length > 0) {
         const cushionMesh = new THREE.InstancedMesh(cushionGeom, seatMaterials[i], matrices.length);
-        cushionMesh.castShadow = true;
+        cushionMesh.castShadow = false;
         cushionMesh.receiveShadow = true;
         matrices.forEach((m, idx) => cushionMesh.setMatrixAt(idx, m));
         this.add(cushionMesh);
@@ -255,7 +255,7 @@ export class Grandstand extends THREE.Group {
       const matrices = backMatrices[i];
       if (matrices.length > 0) {
         const backMesh = new THREE.InstancedMesh(backGeom, seatMaterials[i], matrices.length);
-        backMesh.castShadow = true;
+        backMesh.castShadow = false;
         backMesh.receiveShadow = true;
         matrices.forEach((m, idx) => backMesh.setMatrixAt(idx, m));
         this.add(backMesh);
@@ -489,7 +489,7 @@ export class Grandstand extends THREE.Group {
         baseHeight + stepTop - stairThickness / 2,
         bottomZ - step * treadDepth - treadDepth / 2,
       );
-      stair.castShadow = true;
+      stair.castShadow = false;
       stair.receiveShadow = true;
       this.add(stair);
     }
@@ -497,7 +497,7 @@ export class Grandstand extends THREE.Group {
     if (landingDepth > 0) {
       const landing = new THREE.Mesh(new THREE.BoxGeometry(width, stairThickness, landingDepth), material);
       landing.position.set(x, baseHeight + actualHeight - stairThickness / 2, topZ - landingDepth / 2);
-      landing.castShadow = true;
+      landing.castShadow = false;
       landing.receiveShadow = true;
       this.add(landing);
     }

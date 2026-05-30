@@ -283,7 +283,7 @@ export class InstancedCrowd extends THREE.Group {
 
       const material = getMat(bucket.colorHex, roughness);
       const instMesh = new THREE.InstancedMesh(bucket.geometry, material, count);
-      instMesh.castShadow = true;
+      instMesh.castShadow = false;
       instMesh.receiveShadow = false;
 
       for (let i = 0; i < count; i++) {

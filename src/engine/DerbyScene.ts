@@ -324,8 +324,10 @@ export class DerbyScene {
           vec3 skyColor = mix(horizonColor, topColor, heightMix);
           
           if (dir.y > 0.0 && nightFactor > 0.01) {
-            float starValue = hash(floor(dir * 180.0));
-            if (starValue > 0.994) {
+            // Double the grid resolution (from 180.0 to 360.0) to reduce star size by 50%
+            float starValue = hash(floor(dir * 360.0));
+            // Adjust threshold (from 0.994 to 0.9985) to preserve overall star density
+            if (starValue > 0.9985) {
               float intensity = fract(starValue * 123.4) * nightFactor;
               skyColor += vec3(intensity);
             }
@@ -615,7 +617,7 @@ export class DerbyScene {
     // 1. North Edge streetlights (Z = -122)
     for (let x = -PARK_BOUNDARY_HALF_WIDTH - 25; x <= PARK_BOUNDARY_HALF_WIDTH + 25; x += streetlightSpacing) {
       if (!this.isStreetOpening(x, -122, 6)) {
-        const streetLight = new StreetLight(new THREE.Vector3(x, 0, -122), ironMaterial);
+        const streetLight = new StreetLight(new THREE.Vector3(x, 0, -122), ironMaterial, { castShadow: false });
         this.scene.add(streetLight.group);
       }
     }
@@ -623,7 +625,7 @@ export class DerbyScene {
     // 2. South Edge streetlights (Z = 122)
     for (let x = -PARK_BOUNDARY_HALF_WIDTH - 25; x <= PARK_BOUNDARY_HALF_WIDTH + 25; x += streetlightSpacing) {
       if (!this.isStreetOpening(x, 122, 6)) {
-        const streetLight = new StreetLight(new THREE.Vector3(x, 0, 122), ironMaterial);
+        const streetLight = new StreetLight(new THREE.Vector3(x, 0, 122), ironMaterial, { castShadow: false });
         this.scene.add(streetLight.group);
       }
     }
@@ -631,7 +633,7 @@ export class DerbyScene {
     // 3. West Edge streetlights (X = -158)
     for (let z = -PARK_BOUNDARY_HALF_DEPTH - 25; z <= PARK_BOUNDARY_HALF_DEPTH + 25; z += streetlightSpacing) {
       if (!this.isStreetOpening(-158, z, 6)) {
-        const streetLight = new StreetLight(new THREE.Vector3(-158, 0, z), ironMaterial);
+        const streetLight = new StreetLight(new THREE.Vector3(-158, 0, z), ironMaterial, { castShadow: false });
         streetLight.group.rotation.y = Math.PI / 2; // Span parallel to street
         this.scene.add(streetLight.group);
       }
@@ -640,7 +642,7 @@ export class DerbyScene {
     // 4. East Edge streetlights (X = 158)
     for (let z = -PARK_BOUNDARY_HALF_DEPTH - 25; z <= PARK_BOUNDARY_HALF_DEPTH + 25; z += streetlightSpacing) {
       if (!this.isStreetOpening(158, z, 6)) {
-        const streetLight = new StreetLight(new THREE.Vector3(158, 0, z), ironMaterial);
+        const streetLight = new StreetLight(new THREE.Vector3(158, 0, z), ironMaterial, { castShadow: false });
         streetLight.group.rotation.y = Math.PI / 2; // Span parallel to street
         this.scene.add(streetLight.group);
       }
@@ -703,7 +705,7 @@ export class DerbyScene {
     if (railMatrices.length > 0) {
       const railGeom = new THREE.BoxGeometry(1.0, 1.0, 1.0); // Unit geometry scaled in matrix
       const railMesh = new THREE.InstancedMesh(railGeom, material, railMatrices.length);
-      railMesh.castShadow = true;
+      railMesh.castShadow = false;
       railMatrices.forEach((m, idx) => railMesh.setMatrixAt(idx, m));
       this.scene.add(railMesh);
     }
@@ -711,7 +713,7 @@ export class DerbyScene {
     if (postMatrices.length > 0) {
       const postGeom = new THREE.BoxGeometry(0.14, 2.3, 0.14);
       const postMesh = new THREE.InstancedMesh(postGeom, material, postMatrices.length);
-      postMesh.castShadow = true;
+      postMesh.castShadow = false;
       postMatrices.forEach((m, idx) => postMesh.setMatrixAt(idx, m));
       this.scene.add(postMesh);
     }
@@ -719,7 +721,7 @@ export class DerbyScene {
     if (postCapMatrices.length > 0) {
       const postCapGeom = new THREE.ConeGeometry(0.10, 0.22, 6);
       const postCapMesh = new THREE.InstancedMesh(postCapGeom, material, postCapMatrices.length);
-      postCapMesh.castShadow = true;
+      postCapMesh.castShadow = false;
       postCapMatrices.forEach((m, idx) => postCapMesh.setMatrixAt(idx, m));
       this.scene.add(postCapMesh);
     }
@@ -727,7 +729,7 @@ export class DerbyScene {
     if (picketMatrices.length > 0) {
       const picketGeom = new THREE.BoxGeometry(0.04, 1.8, 0.04);
       const picketMesh = new THREE.InstancedMesh(picketGeom, material, picketMatrices.length);
-      picketMesh.castShadow = true;
+      picketMesh.castShadow = false;
       picketMatrices.forEach((m, idx) => picketMesh.setMatrixAt(idx, m));
       this.scene.add(picketMesh);
     }
@@ -735,7 +737,7 @@ export class DerbyScene {
     if (picketCapMatrices.length > 0) {
       const picketCapGeom = new THREE.ConeGeometry(0.04, 0.12, 4);
       const picketCapMesh = new THREE.InstancedMesh(picketCapGeom, material, picketCapMatrices.length);
-      picketCapMesh.castShadow = true;
+      picketCapMesh.castShadow = false;
       picketCapMatrices.forEach((m, idx) => picketCapMesh.setMatrixAt(idx, m));
       this.scene.add(picketCapMesh);
     }
@@ -1025,29 +1027,32 @@ export class DerbyScene {
     }
 
     // 3. Overhead Banner
-    const bannerCenterZ = (TRACK_OUTER_RADIUS + TRACK_INNER_RADIUS) / 2; // 24
-    const bannerWidth = 22.8;
+    const z1 = TRACK_INNER_RADIUS - 1.1;
+    const z2 = TRACK_OUTER_RADIUS + 1.1;
+    const bannerCenterZ = (z1 + z2) / 2; // 24
+    const bannerWidth = z2 - z1; // 18.2 (exactly the distance between column centers)
+    const boardWidth = bannerWidth - 0.8; // 17.4 (fits inside the columns)
 
     // Truss Frame (top and bottom horizontal rails)
-    const topRail = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, bannerWidth + 0.4), ironMat);
+    const topRail = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, bannerWidth), ironMat);
     topRail.position.set(TRACK_STRAIGHT_HALF_LENGTH, 7.45, bannerCenterZ);
     topRail.castShadow = true;
     this.scene.add(topRail);
 
-    const bottomRail = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, bannerWidth + 0.4), ironMat);
+    const bottomRail = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, bannerWidth), ironMat);
     bottomRail.position.set(TRACK_STRAIGHT_HALF_LENGTH, 6.15, bannerCenterZ);
     bottomRail.castShadow = true;
     this.scene.add(bottomRail);
 
     // Banner Board
-    const banner = new THREE.Mesh(new THREE.BoxGeometry(0.28, 1.2, bannerWidth), bannerMat);
+    const banner = new THREE.Mesh(new THREE.BoxGeometry(0.28, 1.2, boardWidth), bannerMat);
     banner.position.set(TRACK_STRAIGHT_HALF_LENGTH, 6.8, bannerCenterZ);
     banner.castShadow = true;
     this.scene.add(banner);
 
     // Checkerboard ends of the banner board
     for (const side of [-1, 1]) {
-      const endZ = bannerCenterZ + side * (bannerWidth / 2 - 0.8);
+      const endZ = bannerCenterZ + side * (boardWidth / 2 - 0.25);
       for (let r = 0; r < 2; r++) {
         for (let c = 0; c < 2; c++) {
           const isBlack = (r + c) % 2 === 0;
@@ -1078,34 +1083,6 @@ export class DerbyScene {
     medallionCenter.rotation.z = Math.PI / 2;
     medallionCenter.castShadow = true;
     this.scene.add(medallionCenter);
-
-    // 4. Marker Post (indicators)
-    const markerZ = TRACK_OUTER_RADIUS + 3.4;
-    // Pedestal
-    const markerPedestal = new THREE.Mesh(new THREE.BoxGeometry(0.65, 1.2, 0.65), stoneMat);
-    markerPedestal.position.set(TRACK_STRAIGHT_HALF_LENGTH, 0.6, markerZ);
-    markerPedestal.castShadow = true;
-    markerPedestal.receiveShadow = true;
-    this.scene.add(markerPedestal);
-
-    // Post
-    const markerPost = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, 5.2, 6), ironMat);
-    markerPost.position.set(TRACK_STRAIGHT_HALF_LENGTH, 3.8, markerZ);
-    markerPost.castShadow = true;
-    this.scene.add(markerPost);
-
-    // Circle Indicator Board
-    const boardRing = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.72, 0.12, 10), goldMat);
-    boardRing.position.set(TRACK_STRAIGHT_HALF_LENGTH, 6.4, markerZ);
-    boardRing.rotation.z = Math.PI / 2;
-    boardRing.castShadow = true;
-    this.scene.add(boardRing);
-
-    const boardCenter = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.48, 0.16, 10), redMat);
-    boardCenter.position.set(TRACK_STRAIGHT_HALF_LENGTH - 0.02, 6.4, markerZ);
-    boardCenter.rotation.z = Math.PI / 2;
-    boardCenter.castShadow = true;
-    this.scene.add(boardCenter);
   }
 
   private addHorses() {
