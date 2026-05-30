@@ -107,6 +107,29 @@ select:hover {
   pointer-events: auto;
 }
 
+.perf-panel {
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+  min-width: 116px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 6px;
+  color: #fff8ec;
+  background: rgba(15, 18, 16, 0.7);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.74rem;
+  line-height: 1.45;
+  text-align: right;
+  pointer-events: none;
+  backdrop-filter: blur(12px);
+}
+
+.perf-panel strong {
+  color: #e7d17c;
+  font-weight: 700;
+}
+
 @media (max-width: 640px) {
   .race-hud {
     top: 14px;
@@ -117,5 +140,10 @@ select:hover {
 
   .race-actions {
     justify-content: flex-start;
+  }
+
+  .perf-panel {
+    right: 14px;
+    bottom: 14px;
   }
 }

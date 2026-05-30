@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Person } from './Person';
+import { InstancedCrowd } from './InstancedCrowd';
 
 export interface GrandstandConfig {
   /** Total width of the grandstand. Defaults to 70.4. */
@@ -49,9 +49,10 @@ export class Grandstand extends THREE.Group {
     const seatMaterials = [0xb8493b, 0x2f6f9f, 0xd7ae3f].map(
       (color) => new THREE.MeshStandardMaterial({ color, roughness: 0.58 }),
     );
-    const crowdMaterials = [0x1f4a63, 0xb94f3f, 0xd0a23b, 0x3f6a45, 0x6a4f8f, 0xd8d2c5].map(
-      (color) => new THREE.MeshStandardMaterial({ color, roughness: 0.7 }),
-    );
+    const crowdColors = [0x1f4a63, 0xb94f3f, 0xd0a23b, 0x3f6a45, 0x6a4f8f, 0xd8d2c5];
+
+    // GPU-instanced crowd renderer
+    const crowd = new InstancedCrowd();
 
     const standWidth = this.config.width;
     const seatRowWidth = standWidth - 0.4;
@@ -217,16 +218,20 @@ export class Grandstand extends THREE.Group {
           this.add(back);
         }
 
-        this.addGrandstandCrowdRow(
+        crowd.addRow(
           row,
           segment.x,
           seatWidth,
           3.64 + row * 1.25, // Sitting Y level (cushion top)
           5.20 - row * 1.85, // Sitting Z level (cushion center)
-          crowdMaterials,
+          crowdColors,
         );
       }
     }
+
+    // Bake all spectator instances into GPU-batched InstancedMesh draw calls
+    crowd.build();
+    this.add(crowd);
 
     // 7. Stair Runs
     for (const x of aisleXPositions) {
@@ -338,6 +343,7 @@ export class Grandstand extends THREE.Group {
       roughness: 0.22,
     });
     const count = 10;
+    const activeLightEvery = 3;
     const usableWidth = standWidth - 8;
     const spacing = usableWidth / (count - 1);
 
@@ -352,9 +358,11 @@ export class Grandstand extends THREE.Group {
       lens.position.set(x, roofY - 1.43, z);
       this.add(lens);
 
-      const light = new THREE.PointLight(0xffdf9a, 0.65, 9, 1.7);
-      light.position.set(x, roofY - 1.7, z);
-      this.add(light);
+      if (index % activeLightEvery === 0 || index === count - 1) {
+        const light = new THREE.PointLight(0xffdf9a, 0.85, 11, 1.8);
+        light.position.set(x, roofY - 1.7, z);
+        this.add(light);
+      }
     }
   }
 
@@ -521,77 +529,5 @@ export class Grandstand extends THREE.Group {
     }
   }
 
-  private addGrandstandCrowdRow(
-    row: number,
-    segmentX: number,
-    width: number,
-    y: number,
-    z: number,
-    clothingMaterials: THREE.Material[],
-  ) {
-    const spacing = 0.9;
-    const columns = Math.floor(width / spacing);
-    const startX = segmentX - ((columns - 1) * spacing) / 2;
 
-    for (let column = 0; column < columns; column += 1) {
-      const jitterX = (this.stableNoise(row, column, 1) - 0.5) * 0.46;
-      const jitterZ = (this.stableNoise(row, column, 2) - 0.5) * 0.38;
-      const x = startX + column * spacing + jitterX;
-
-      if (this.stableNoise(row, column, 3) < 0.08) {
-        continue;
-      }
-
-      const scale = 0.86 + this.stableNoise(row, column, 4) * 0.24;
-      const spectatorMaterial = clothingMaterials[
-        Math.floor(this.stableNoise(row, column, 5) * clothingMaterials.length)
-      ] as THREE.MeshStandardMaterial;
-      const clothColor = spectatorMaterial.color.getHex();
-
-      const hairColors = [0x1a1105, 0x4a3728, 0x2d1f18, 0xd6c585, 0xa37b45];
-      const capOrHairNoise = this.stableNoise(row, column, 7);
-      const helmetColor = capOrHairNoise < 0.4
-        ? clothColor
-        : hairColors[Math.floor(capOrHairNoise * hairColors.length) % hairColors.length];
-
-      const spectator = new Person({
-        clothColor,
-        helmetColor,
-      });
-
-      const torsoLean = (this.stableNoise(row, column, 8) - 0.5) * 0.15;
-      const headTilt = (this.stableNoise(row, column, 9) - 0.5) * 0.1;
-      
-      const armNoise = this.stableNoise(row, column, 10);
-      let leftArm = -0.6;
-      let rightArm = -0.6;
-      if (armNoise < 0.15) {
-        leftArm = -Math.PI + 0.4;
-      } else if (armNoise < 0.3) {
-        rightArm = -Math.PI + 0.4;
-      } else if (armNoise < 0.45) {
-        leftArm = -Math.PI + 0.2;
-        rightArm = -Math.PI + 0.2;
-      } else {
-        leftArm = 0.2;
-        rightArm = 0.2;
-      }
-
-      spectator.pose(torsoLean, headTilt, leftArm, rightArm);
-
-      // Rotate legs forward to sit naturally on benches instead of straddling
-      spectator.leftLeg.rotation.set(0.05, 0, 0.22);
-      spectator.rightLeg.rotation.set(-0.05, 0, 0.22);
-
-      spectator.group.position.set(x, y + 1.16 * scale, z + jitterZ);
-      spectator.group.rotation.y = -Math.PI / 2 + (this.stableNoise(row, column, 6) - 0.5) * 0.34;
-      spectator.group.scale.setScalar(scale * 0.85); // Scale down slightly to fit seats comfortably
-      this.add(spectator.group);
-    }
-  }
-
-  private stableNoise(row: number, column: number, salt: number) {
-    const value = Math.sin(row * 127.1 + column * 311.7 + salt * 74.7) * 43758.5453;
-    return value - Math.floor(value);
-  }
 }
