@@ -53,7 +53,13 @@ export class DerbyScene {
   private weatherManager!: WeatherManager;
   private skyMesh!: THREE.Mesh;
   private timeOfDay = 12.0; // starts at noon (12:00 PM)
+  public selectedHorse: Horse | null = null;
   public onTimeUpdate?: (time: number) => void;
+  public onHorseSelected?: (horse: Horse | null) => void;
+  public onHorsePositionUpdate?: (pos: { x: number; y: number; isBehind: boolean } | null) => void;
+  private pointerDownX = 0;
+  private pointerDownY = 0;
+  private hoveredHorse: Horse | null = null;
   
   // Environment references used by weather system
   private skyMaterial!: THREE.ShaderMaterial;
@@ -125,6 +131,7 @@ export class DerbyScene {
     window.addEventListener('pointermove', this.handlePointerMove);
     window.addEventListener('pointerup', this.handlePointerUp);
     window.addEventListener('pointercancel', this.handlePointerUp);
+    this.renderer.domElement.addEventListener('pointerleave', this.handlePointerLeave);
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(host);
@@ -176,6 +183,7 @@ export class DerbyScene {
     window.removeEventListener('pointermove', this.handlePointerMove);
     window.removeEventListener('pointerup', this.handlePointerUp);
     window.removeEventListener('pointercancel', this.handlePointerUp);
+    this.renderer.domElement.removeEventListener('pointerleave', this.handlePointerLeave);
     
     // Dispose of weather effects and rain/lightning resources
     if (this.weatherManager) {
@@ -1018,6 +1026,22 @@ export class DerbyScene {
 
     this.renderer.render(this.scene, this.camera);
     this.updatePerfPanel(delta);
+
+    if (this.selectedHorse) {
+      const pos = new THREE.Vector3();
+      this.selectedHorse.group.getWorldPosition(pos);
+      pos.y += 3.4; // offset vertically to float above the horse
+      pos.project(this.camera);
+
+      const x = (pos.x * 0.5 + 0.5) * 100;
+      const y = (-pos.y * 0.5 + 0.5) * 100;
+      const isBehind = pos.z > 1;
+
+      this.onHorsePositionUpdate?.({ x, y, isBehind });
+    } else {
+      this.onHorsePositionUpdate?.(null);
+    }
+
     this.animationFrame = requestAnimationFrame(this.tick);
   };
 
@@ -1098,20 +1122,68 @@ export class DerbyScene {
     this.isPointerLooking = true;
     this.lastPointerX = event.clientX;
     this.lastPointerY = event.clientY;
+    this.pointerDownX = event.clientX;
+    this.pointerDownY = event.clientY;
     this.renderer.domElement.setPointerCapture(event.pointerId);
   };
 
   private handlePointerMove = (event: PointerEvent) => {
-    if (!this.isPointerLooking) return;
+    if (this.isPointerLooking) {
+      const deltaX = event.clientX - this.lastPointerX;
+      const deltaY = event.clientY - this.lastPointerY;
+      this.lastPointerX = event.clientX;
+      this.lastPointerY = event.clientY;
 
-    const deltaX = event.clientX - this.lastPointerX;
-    const deltaY = event.clientY - this.lastPointerY;
-    this.lastPointerX = event.clientX;
-    this.lastPointerY = event.clientY;
-
-    this.freeLookYaw -= deltaX * 0.004;
-    this.freeLookPitch = THREE.MathUtils.clamp(this.freeLookPitch - deltaY * 0.003, -0.58, 0.42);
+      this.freeLookYaw -= deltaX * 0.004;
+      this.freeLookPitch = THREE.MathUtils.clamp(this.freeLookPitch - deltaY * 0.003, -0.58, 0.42);
+    } else {
+      this.checkHorseHover(event);
+    }
   };
+
+  private handlePointerLeave = () => {
+    if (this.hoveredHorse) {
+      this.hoveredHorse.setHovered(false);
+      this.hoveredHorse = null;
+    }
+  };
+
+  private checkHorseHover(event: PointerEvent) {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const mouse = new THREE.Vector2(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1
+    );
+
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(mouse, this.camera);
+
+    const horseGroups = this.horses.map((h) => h.group);
+    const intersects = raycaster.intersectObjects(horseGroups, true);
+
+    let clickedHorse: Horse | null = null;
+    if (intersects.length > 0) {
+      let obj: THREE.Object3D | null = intersects[0].object;
+      while (obj) {
+        const found = this.horses.find((h) => h.group === obj);
+        if (found) {
+          clickedHorse = found;
+          break;
+        }
+        obj = obj.parent;
+      }
+    }
+
+    if (clickedHorse !== this.hoveredHorse) {
+      if (this.hoveredHorse) {
+        this.hoveredHorse.setHovered(false);
+      }
+      this.hoveredHorse = clickedHorse;
+      if (this.hoveredHorse) {
+        this.hoveredHorse.setHovered(true);
+      }
+    }
+  }
 
   private handlePointerUp = (event: PointerEvent) => {
     this.isPointerLooking = false;
@@ -1119,7 +1191,49 @@ export class DerbyScene {
     if (this.renderer.domElement.hasPointerCapture(event.pointerId)) {
       this.renderer.domElement.releasePointerCapture(event.pointerId);
     }
+
+    const deltaX = Math.abs(event.clientX - this.pointerDownX);
+    const deltaY = Math.abs(event.clientY - this.pointerDownY);
+    if (deltaX < 5 && deltaY < 5) {
+      this.checkHorseSelection(event);
+    }
   };
+
+  private checkHorseSelection(event: PointerEvent) {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const mouse = new THREE.Vector2(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1
+    );
+
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(mouse, this.camera);
+
+    const horseGroups = this.horses.map((h) => h.group);
+    const intersects = raycaster.intersectObjects(horseGroups, true);
+
+    if (intersects.length > 0) {
+      let obj: THREE.Object3D | null = intersects[0].object;
+      let clickedHorse: Horse | null = null;
+      while (obj) {
+        const found = this.horses.find((h) => h.group === obj);
+        if (found) {
+          clickedHorse = found;
+          break;
+        }
+        obj = obj.parent;
+      }
+
+      if (clickedHorse) {
+        this.selectedHorse = clickedHorse;
+        this.onHorseSelected?.(clickedHorse);
+        return;
+      }
+    }
+
+    this.selectedHorse = null;
+    this.onHorseSelected?.(null);
+  }
 
   private updateCameraRail(delta: number) {
     const direction =

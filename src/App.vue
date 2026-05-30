@@ -9,6 +9,28 @@ const weather = ref<WeatherType>('light_cloud');
 const timeOfDayRef = ref(12.0); // start at noon (12:00)
 let derbyScene: DerbyScene | null = null;
 
+const selectedHorse = ref<any | null>(null);
+const selectedHorsePos = ref<{ x: number; y: number; isBehind: boolean } | null>(null);
+
+const horseNames = ["Glinting Gold", "Blue Bullet", "Crimson Comet", "Green Gale", "Purple Pegasus", "Orange Outlaw"];
+const horseAccentColors = ['#d84d38', '#2d7dd2', '#e7c948', '#54a66d', '#8b5bd6', '#f47a30'];
+
+function getHorseName(index: number) {
+  return horseNames[index % horseNames.length];
+}
+
+function getHorseAccentColor(index: number) {
+  return horseAccentColors[index % horseAccentColors.length];
+}
+
+function deselectHorse() {
+  if (derbyScene) {
+    derbyScene.selectedHorse = null;
+  }
+  selectedHorse.value = null;
+  selectedHorsePos.value = null;
+}
+
 onMounted(() => {
   if (!viewport.value) return;
 
@@ -17,6 +39,14 @@ onMounted(() => {
   // Set up the time of day callback from the 3D scene engine
   derbyScene.onTimeUpdate = (time: number) => {
     timeOfDayRef.value = time;
+  };
+
+  derbyScene.onHorseSelected = (horse) => {
+    selectedHorse.value = horse;
+  };
+
+  derbyScene.onHorsePositionUpdate = (pos) => {
+    selectedHorsePos.value = pos;
   };
 
   derbyScene.start();
@@ -62,6 +92,37 @@ const formattedTime = computed(() => {
   <main class="app-shell">
     <section class="race-stage" aria-label="Token Derby 3D race renderer">
       <div ref="viewport" class="race-viewport"></div>
+
+      <!-- Floating Horse Info Tag -->
+      <div 
+        v-if="selectedHorse && selectedHorsePos && !selectedHorsePos.isBehind"
+        class="horse-info-tag"
+        :style="{ left: selectedHorsePos.x + '%', top: selectedHorsePos.y + '%' }"
+      >
+        <div class="tag-header" :style="{ borderLeftColor: getHorseAccentColor(selectedHorse.index) }">
+          <div class="header-main">
+            <span class="horse-name">{{ getHorseName(selectedHorse.index) }}</span>
+            <span class="lane-badge">Lane {{ selectedHorse.index + 1 }}</span>
+          </div>
+          <button type="button" class="close-tag-btn" @click="deselectHorse" aria-label="Deselect horse">×</button>
+        </div>
+        <div class="tag-body">
+          <div class="stat-row">
+            <span class="stat-label">Progress</span>
+            <span class="stat-val font-mono">{{ Math.round(selectedHorse.progress * 100) }}%</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Speed</span>
+            <span class="stat-val font-mono">{{ Math.round(selectedHorse.speed * 2000) }} mph</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Jockey Jersey</span>
+            <span class="stat-val">
+              <span class="color-dot" :style="{ backgroundColor: getHorseAccentColor(selectedHorse.index) }"></span>
+            </span>
+          </div>
+        </div>
+      </div>
 
       <div class="race-hud">
         <div>

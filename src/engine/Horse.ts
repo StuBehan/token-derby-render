@@ -15,9 +15,10 @@ export class Horse {
   private readonly lowerLegs: THREE.Group[] = [];
   private leftRein!: THREE.Line;
   private rightRein!: THREE.Line;
-  private readonly index: number;
-  private readonly speed: number;
-  private readonly laneOffset: number;
+  private hoverRing!: THREE.Mesh;
+  public readonly index: number;
+  public readonly speed: number;
+  public readonly laneOffset: number;
   private readonly initialProgress: number;
   private jockey!: Person;
   private prevSwings: number[] = [0, 0, 0, 0];
@@ -236,6 +237,21 @@ export class Horse {
     this.rightRein = new THREE.Line(rightReinGeo, reinMaterial);
     this.group.add(this.rightRein);
 
+    // Create a flat hover ring underneath the horse, matching its jersey color
+    const ringColor = [0xd84d38, 0x2d7dd2, 0xe7c948, 0x54a66d, 0x8b5bd6, 0xf47a30][this.index % 6];
+    const ringGeo = new THREE.RingGeometry(1.2, 1.45, 32);
+    ringGeo.rotateX(-Math.PI / 2);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: ringColor,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.85,
+    });
+    this.hoverRing = new THREE.Mesh(ringGeo, ringMat);
+    this.hoverRing.position.y = 0.05; // slightly above track surface
+    this.hoverRing.visible = false;
+    this.group.add(this.hoverRing);
+
     this.group.scale.setScalar(1.05);
   }
 
@@ -332,5 +348,24 @@ export class Horse {
     this.rightReinPositions[4] = this.rightHandLocal.y;
     this.rightReinPositions[5] = this.rightHandLocal.z;
     this.rightReinPositionAttribute.needsUpdate = true;
+  }
+
+  public setHovered(hovered: boolean) {
+    const highlightColor = new THREE.Color(0xfff5d6);
+    this.hoverRing.visible = hovered;
+    this.group.traverse((child) => {
+      if (child instanceof THREE.Mesh && child !== this.hoverRing) {
+        const mat = child.material;
+        if (mat && 'emissive' in mat) {
+          if (hovered) {
+            mat.emissive.copy(highlightColor);
+            mat.emissiveIntensity = 0.35;
+          } else {
+            mat.emissive.setHex(0x000000);
+            mat.emissiveIntensity = 0.0;
+          }
+        }
+      }
+    });
   }
 }
