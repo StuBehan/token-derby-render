@@ -2,6 +2,12 @@
   "name": "token-derby-render",
   "private": true,
   "version": "0.1.0",
+  "description": "A Vue and Three.js race visualisation prototype for Token Derby.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/o-mauri/token-derby-render.git"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",

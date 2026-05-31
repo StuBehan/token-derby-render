@@ -110,6 +110,7 @@ export class DerbyScene {
   private lastPointerX = 0;
   private lastPointerY = 0;
   private readonly perfPanel = document.createElement('div');
+  private readonly showPerfPanel = new URLSearchParams(window.location.search).get('debug') === 'perf';
   private perfFrameCount = 0;
   private perfElapsed = 0;
   private perfObjectCount = 0;
@@ -128,7 +129,9 @@ export class DerbyScene {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     host.appendChild(this.renderer.domElement);
     this.renderer.domElement.style.touchAction = 'none';
-    this.initPerfPanel();
+    if (this.showPerfPanel) {
+      this.initPerfPanel();
+    }
 
     this.updateCameraRail(0);
     window.addEventListener('keydown', this.handleKeyDown);
@@ -143,7 +146,9 @@ export class DerbyScene {
     this.resizeObserver.observe(host);
 
     this.buildScene();
-    this.updatePerfSceneCounts();
+    if (this.showPerfPanel) {
+      this.updatePerfSceneCounts();
+    }
     this.resize();
   }
 
@@ -206,7 +211,9 @@ export class DerbyScene {
       }
     });
     this.renderer.dispose();
-    this.perfPanel.remove();
+    if (this.showPerfPanel) {
+      this.perfPanel.remove();
+    }
     this.renderer.domElement.remove();
   }
 
@@ -1057,7 +1064,9 @@ export class DerbyScene {
     }
 
     this.renderer.render(this.scene, this.camera);
-    this.updatePerfPanel(delta);
+    if (this.showPerfPanel) {
+      this.updatePerfPanel(delta);
+    }
 
     if (this.selectedHorse) {
       const pos = new THREE.Vector3();

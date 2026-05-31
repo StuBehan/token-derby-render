@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, computed } from 'vue';
 import { DerbyScene } from './engine/DerbyScene';
+import type { Horse } from './engine/Horse';
 import type { WeatherType } from './engine/Weather';
 
 const viewport = ref<HTMLDivElement | null>(null);
@@ -9,7 +10,7 @@ const weather = ref<WeatherType>('light_cloud');
 const timeOfDayRef = ref(12.0); // start at noon (12:00)
 let derbyScene: DerbyScene | null = null;
 
-const selectedHorse = ref<any | null>(null);
+const selectedHorse = ref<Horse | null>(null);
 const selectedHorsePos = ref<{ x: number; y: number; isBehind: boolean } | null>(null);
 
 const horseNames = ["Glinting Gold", "Blue Bullet", "Crimson Comet", "Green Gale", "Purple Pegasus", "Orange Outlaw"];
@@ -126,7 +127,7 @@ const formattedTime = computed(() => {
 
       <div class="race-hud">
         <div>
-          <p class="eyebrow">Made for o-mauri/token-derby</p>
+          <p class="eyebrow">Token Derby Render</p>
           <h1>Race Visual Engine</h1>
         </div>
 
