@@ -126,7 +126,7 @@ const formattedTime = computed(() => {
 
       <div class="race-hud">
         <div>
-          <p class="eyebrow">Token Derby</p>
+          <p class="eyebrow">Made for o-mauri/token-derby</p>
           <h1>Race Visual Engine</h1>
         </div>
 

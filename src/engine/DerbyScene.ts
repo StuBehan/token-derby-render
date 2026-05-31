@@ -33,7 +33,7 @@ const MAX_DUST_PARTICLES = 250;
 const HORSE_LOOK_AHEAD_PROGRESS = 0.035;
 const HORSE_SIDE_BY_SIDE_PROGRESS = 0.015;
 const HORSE_LANE_OVERLAP_WIDTH = 1.6;
-const HORSE_INSIDE_PRIORITY_MARGIN = 0.2;
+const HORSE_SIDE_BY_SIDE_MIN_LANE_DIFF = 1.33;
 const HORSE_OVERTAKE_LANE_STEP = 2.0;
 const UNIT_CLOUD_PUFF_GEOM = new THREE.DodecahedronGeometry(1.0, 0); // Shared unit dodecahedron for all cloud puffs (detail 0 for performance)
 const PARK_PATHS: ParkPath[] = [
@@ -1134,7 +1134,7 @@ export class DerbyScene {
         const isSideBySideInside =
           diff >= -HORSE_SIDE_BY_SIDE_PROGRESS &&
           diff <= 0 &&
-          horseB.laneOffset > horseA.laneOffset - HORSE_INSIDE_PRIORITY_MARGIN;
+          horseB.laneOffset > horseA.laneOffset + HORSE_SIDE_BY_SIDE_MIN_LANE_DIFF;
 
         if (!isAhead && !isSideBySideInside) return;
 

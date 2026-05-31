@@ -273,7 +273,16 @@ export class Horse {
 
   public update(delta: number, trackCurve: THREE.CatmullRomCurve3) {
     this.phase += delta * 12;
-    const progressGain = this.speed * delta;
+
+    // Calculate path scale based on curve vs straight length to give inside rail an advantage
+    const basePosition = trackCurve.getPointAt(Math.max(0, this.progress));
+    let pathScale = 1.0;
+    if (Math.abs(basePosition.x) > 31) {
+      // Curved radius scaling (center radius is 24)
+      pathScale = 24 / (24 - this.laneOffset);
+    }
+
+    const progressGain = this.speed * delta * pathScale;
     this.progress += progressGain;
     this.cumulativeProgress += progressGain;
 
