@@ -117,6 +117,10 @@ export class DerbyScene {
     this.weather.setTimeOfDay(time);
   }
 
+  setSunriseSunset(sunrise: number, sunset: number) {
+    this.weather.setSunriseSunset(sunrise, sunset);
+  }
+
   public setCameraMode(mode: RequestedCameraMode) {
     this.cameraController.setMode(mode, this.selectedHorse);
   }
@@ -163,6 +167,11 @@ export class DerbyScene {
     this.cameraController.setSelectedHorseMode('free');
     this.clearHorses();
     this.horseRoster.addDemoHorses();
+
+    // Reset weather & time to default landing settings
+    this.setWeather('light_cloud');
+    this.setTimeOfDay(12.0);
+    this.setSunriseSunset(6.0, 18.0);
   }
 
   public spawnAchievementEffect(horseName: string, colorHex: string, achievementName: string, xp: number = 3) {
@@ -254,11 +263,27 @@ export class DerbyScene {
       selectedHorse: this.selectedHorse,
       hasLiveRace: !!this.raceSync.liveRace,
     });
+    if (this.raceSync.liveRace) {
+      const now = new Date();
+      const londonTimeStr = now.toLocaleString('en-US', { timeZone: 'Europe/London' });
+      const londonDate = new Date(londonTimeStr);
+      const currentHour = londonDate.getHours() + londonDate.getMinutes() / 60 + londonDate.getSeconds() / 3600;
+      this.setTimeOfDay(currentHour);
+      this.onTimeUpdate?.(currentHour);
+    }
+
     this.cloudSystem.update(delta, this.clock.getElapsedTime());
-    this.weather.update(delta, this.running, this.onTimeUpdate);
+    this.weather.update(delta, this.running && !this.raceSync.liveRace, this.onTimeUpdate);
     this.skyline.update(delta, this.running);
 
-    setScenePracticalLightsEnabled(this.weather.timeOfDay, this.weather.type, this.floodlights, this.streetLights);
+    setScenePracticalLightsEnabled(
+      this.weather.timeOfDay,
+      this.weather.type,
+      this.floodlights,
+      this.streetLights,
+      this.weather.sunriseHour,
+      this.weather.sunsetHour
+    );
 
     this.achievementEffects.update(delta);
 

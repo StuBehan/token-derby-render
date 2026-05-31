@@ -32,8 +32,10 @@ export function setScenePracticalLightsEnabled(
   weatherType: WeatherType,
   floodlights: Floodlights | undefined,
   streetLights: StreetLight[],
+  sunriseHour: number = 7.5,
+  sunsetHour: number = 17.0
 ) {
-  const isNightOrSunset = timeOfDay >= 17.0 || timeOfDay < 7.5;
+  const isNightOrSunset = timeOfDay >= sunsetHour || timeOfDay < sunriseHour;
   const lightsOn = weatherType === 'rainy' || weatherType === 'storm' || isNightOrSunset;
 
   floodlights?.setLightsEnabled(lightsOn);

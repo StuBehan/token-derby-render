@@ -108,21 +108,21 @@ export class FinishLine {
 
     // Truss Frame (top and bottom horizontal rails)
     const topRailGeom = new THREE.BoxGeometry(0.1, 0.1, bannerWidth);
-    addGeom(ironGeoms, topRailGeom, 0, 7.45, 0);
+    addGeom(ironGeoms, topRailGeom, 0, 6.95, 0);
 
     const bottomRailGeom = new THREE.BoxGeometry(0.1, 0.1, bannerWidth);
-    addGeom(ironGeoms, bottomRailGeom, 0, 6.15, 0);
+    addGeom(ironGeoms, bottomRailGeom, 0, 5.65, 0);
 
     // Banner Board
     const bannerGeom = new THREE.BoxGeometry(0.28, 1.2, boardWidth);
-    addGeom(bannerGeoms, bannerGeom, 0, 6.8, 0);
+    addGeom(bannerGeoms, bannerGeom, 0, 6.3, 0);
 
     // Rosette / Crest (Center Medallion facing oncoming horses)
     const medallionRingGeom = new THREE.CylinderGeometry(0.65, 0.65, 0.12, 8);
-    addGeom(goldGeoms, medallionRingGeom, -0.18, 6.8, 0, 0, 0, Math.PI / 2);
+    addGeom(goldGeoms, medallionRingGeom, -0.18, 6.3, 0, 0, 0, Math.PI / 2);
 
     const medallionCenterGeom = new THREE.CylinderGeometry(0.42, 0.42, 0.16, 8);
-    addGeom(redGeoms, medallionCenterGeom, -0.20, 6.8, 0, 0, 0, Math.PI / 2);
+    addGeom(redGeoms, medallionCenterGeom, -0.20, 6.3, 0, 0, 0, Math.PI / 2);
 
     // Clean up temporary base geometries
     pedestalGeom.dispose();

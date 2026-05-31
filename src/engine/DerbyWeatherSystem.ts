@@ -6,6 +6,8 @@ export class DerbyWeatherSystem {
   private activeType: WeatherType = 'light_cloud';
   private currentTimeOfDay = 12.0;
   private manager?: WeatherManager;
+  private currentSunriseHour = 6.0;
+  private currentSunsetHour = 18.0;
 
   get type() {
     return this.activeType;
@@ -13,6 +15,20 @@ export class DerbyWeatherSystem {
 
   get timeOfDay() {
     return this.currentTimeOfDay;
+  }
+
+  get sunriseHour() {
+    return this.currentSunriseHour;
+  }
+
+  get sunsetHour() {
+    return this.currentSunsetHour;
+  }
+
+  setSunriseSunset(sunrise: number, sunset: number) {
+    this.currentSunriseHour = sunrise;
+    this.currentSunsetHour = sunset;
+    this.manager?.setSunriseSunset(sunrise, sunset);
   }
 
   init(context: WeatherInitContext) {
@@ -27,6 +43,7 @@ export class DerbyWeatherSystem {
       },
       this.activeType,
     );
+    this.manager.setSunriseSunset(this.currentSunriseHour, this.currentSunsetHour);
     this.setWeather(this.activeType);
   }
 

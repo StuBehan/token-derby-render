@@ -5,6 +5,7 @@ import { DerbyScene } from './engine/DerbyScene';
 import { Horse } from './engine/Horse';
 import type { WeatherType } from './engine/Weather';
 import { RaceClient, type RaceView, type HorseColors } from './engine/RaceClient';
+import { fetchLondonWeather, fetchLondonDaylight } from './engine/WeatherService';
 
 const viewport = ref<HTMLDivElement | null>(null);
 const isRunning = ref(true);
@@ -503,6 +504,7 @@ onMounted(() => {
 
   derbyScene.start();
 
+
   countdownInterval = window.setInterval(() => {
     if (joinedRace.value && joinedRace.value.status === 'live') {
       if (timeLeftSeconds.value > 0) {
@@ -545,6 +547,18 @@ async function joinRace() {
       joinedRace.value = initialRace;
       timeLeftSeconds.value = initialRace.time_left_seconds;
       derbyScene?.updateLiveRace(initialRace);
+
+      // Fetch London weather and daylight conditions on join
+      Promise.all([fetchLondonWeather(), fetchLondonDaylight()]).then(([londonWeather, daylight]) => {
+        weather.value = londonWeather;
+        derbyScene?.setWeather(londonWeather);
+
+        timeOfDayRef.value = daylight.currentHour;
+        derbyScene?.setTimeOfDay(daylight.currentHour);
+        derbyScene?.setSunriseSunset(daylight.sunriseHour, daylight.sunsetHour);
+      }).catch((err) => {
+        console.error('Failed to sync London weather/daylight on join:', err);
+      });
       
       // Seed watermark with existing events when joining so we don't spam historical alerts
       for (const horse of initialRace.horses) {

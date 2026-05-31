@@ -290,6 +290,9 @@ export class WeatherManager {
   private activeType: WeatherType;
   private transitionSpeed = 0.55; // Complete transition in ~1.8 seconds
 
+  public sunriseHour = 6.0;
+  public sunsetHour = 18.0;
+
   private lightningTimer = 3.0;
   private isLightningStrikeActive = false;
 
@@ -329,6 +332,11 @@ export class WeatherManager {
   public setWeather(type: WeatherType) {
     this.activeType = type;
     this.copyParams(this.targetParams, this.getParamsForType(type));
+  }
+
+  public setSunriseSunset(sunrise: number, sunset: number) {
+    this.sunriseHour = sunrise;
+    this.sunsetHour = sunset;
   }
 
   public update(delta: number, timeOfDay: number) {
@@ -395,25 +403,33 @@ export class WeatherManager {
     let nightWeight = 0;
     let sunriseWeight = 0;
 
-    // Determine time-of-day weights (fully continuous, zero-jump transitions)
-    if (timeOfDay >= 8.0 && timeOfDay < 17.0) {
+    // We calibrate transitions based on dynamic sunriseHour and sunsetHour:
+    const sunriseStart = this.sunriseHour - 1.5;
+    const sunrisePeak = this.sunriseHour;
+    const sunriseEnd = this.sunriseHour + 1.5;
+
+    const sunsetStart = this.sunsetHour - 2.0;
+    const sunsetPeak = this.sunsetHour;
+    const sunsetEnd = this.sunsetHour + 2.0;
+
+    if (timeOfDay >= sunriseEnd && timeOfDay < sunsetStart) {
       dayWeight = 1.0;
-    } else if (timeOfDay >= 17.0 && timeOfDay < 19.0) {
-      const t = (timeOfDay - 17.0) / 2.0;
+    } else if (timeOfDay >= sunsetStart && timeOfDay < sunsetPeak) {
+      const t = (timeOfDay - sunsetStart) / (sunsetPeak - sunsetStart);
       dayWeight = 1.0 - t;
       sunsetWeight = t;
-    } else if (timeOfDay >= 19.0 && timeOfDay < 21.0) {
-      const t = (timeOfDay - 19.0) / 2.0;
+    } else if (timeOfDay >= sunsetPeak && timeOfDay < sunsetEnd) {
+      const t = (timeOfDay - sunsetPeak) / (sunsetEnd - sunsetPeak);
       sunsetWeight = 1.0 - t;
       nightWeight = t;
-    } else if (timeOfDay >= 21.0 || timeOfDay < 4.5) {
+    } else if (timeOfDay >= sunsetEnd || timeOfDay < sunriseStart) {
       nightWeight = 1.0;
-    } else if (timeOfDay >= 4.5 && timeOfDay < 6.5) {
-      const t = (timeOfDay - 4.5) / 2.0;
+    } else if (timeOfDay >= sunriseStart && timeOfDay < sunrisePeak) {
+      const t = (timeOfDay - sunriseStart) / (sunrisePeak - sunriseStart);
       nightWeight = 1.0 - t;
       sunriseWeight = t;
-    } else if (timeOfDay >= 6.5 && timeOfDay < 8.0) {
-      const t = (timeOfDay - 6.5) / 1.5;
+    } else if (timeOfDay >= sunrisePeak && timeOfDay < sunriseEnd) {
+      const t = (timeOfDay - sunrisePeak) / (sunriseEnd - sunrisePeak);
       sunriseWeight = 1.0 - t;
       dayWeight = t;
     }
