@@ -399,7 +399,62 @@ export class Horse {
     this.rightReinPositions[3] = this.rightHandLocal.x;
     this.rightReinPositions[4] = this.rightHandLocal.y;
     this.rightReinPositions[5] = this.rightHandLocal.z;
+  }
+
+  public updatePreview(delta: number, speed: number = 0.02) {
+    this.phase += delta * 12;
+    const speedFactor = Math.min(1.0, speed / 0.015);
+    const phaseAngle = this.phase + this.index;
+    
+    // Animate legs
+    const swings = [
+      Math.sin(phaseAngle) * 0.5 * speedFactor,           // Back-Left
+      Math.sin(phaseAngle - 0.5) * 0.5 * speedFactor,     // Back-Right
+      -Math.sin(phaseAngle - 0.3) * 0.5 * speedFactor,    // Front-Left
+      -Math.sin(phaseAngle - 0.8) * 0.5 * speedFactor     // Front-Right
+    ];
+    
+    for (let i = 0; i < 4; i++) {
+      const swing = swings[i];
+      this.legs[i].rotation.z = swing;
+      this.lowerLegs[i].rotation.z = -Math.max(0, swing) * 1.5;
+    }
+    
+    // Jockey pose
+    const targetLean = -0.15 + (-0.13 + Math.sin(phaseAngle) * 0.08) * speedFactor;
+    const targetHeadTilt = (0.15 - Math.sin(phaseAngle) * 0.04) * speedFactor;
+    
+    this.jockey.pose(
+      targetLean,
+      targetHeadTilt,
+      -0.6,
+      -0.6,
+      1.15,
+      1.15
+    );
+    
+    // Update reins positions dynamically to connect horse snout to jockey's hands
+    this.jockey.leftHand.getWorldPosition(this.leftHandWorld);
+    this.jockey.rightHand.getWorldPosition(this.rightHandWorld);
+    
+    this.leftHandLocal.copy(this.leftHandWorld);
+    this.rightHandLocal.copy(this.rightHandWorld);
+    this.group.worldToLocal(this.leftHandLocal);
+    this.group.worldToLocal(this.rightHandLocal);
+    
+    this.leftReinPositions[3] = this.leftHandLocal.x;
+    this.leftReinPositions[4] = this.leftHandLocal.y;
+    this.leftReinPositions[5] = this.leftHandLocal.z;
+    this.leftReinPositionAttribute.needsUpdate = true;
+    
+    this.rightReinPositions[3] = this.rightHandLocal.x;
+    this.rightReinPositions[4] = this.rightHandLocal.y;
+    this.rightReinPositions[5] = this.rightHandLocal.z;
     this.rightReinPositionAttribute.needsUpdate = true;
+    
+    // Subtle breathing/bobbing in place
+    this.group.position.set(0, 0.628 + Math.sin(this.phase) * 0.12 * speedFactor, 0);
+    this.group.rotation.set(0, -Math.PI / 2, 0); // face sideways (pointing left)
   }
 
   public setHovered(hovered: boolean) {

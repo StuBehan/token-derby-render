@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, computed } from 'vue';
+import * as THREE from 'three';
 import { DerbyScene } from './engine/DerbyScene';
-import type { Horse } from './engine/Horse';
+import { Horse } from './engine/Horse';
 import type { WeatherType } from './engine/Weather';
-import { RaceClient, type RaceView } from './engine/RaceClient';
+import { RaceClient, type RaceView, type HorseColors } from './engine/RaceClient';
 
 const viewport = ref<HTMLDivElement | null>(null);
 const isRunning = ref(true);
@@ -96,6 +97,309 @@ function processAchievements(race: RaceView) {
   }
 }
 
+// Leveling calculations
+const MAX_LEVEL = 30;
+
+function xpForLevel(n: number): number {
+  return 1.8 * n ** 3 + 18 * n ** 2 + 50 * n - 19.8;
+}
+
+function thresholdForLevel(level: number): number {
+  if (level <= 1) return 0;
+  return Math.round(xpForLevel(level - 1));
+}
+
+function levelFromXp(xp: number): number {
+  const v = Math.max(0, Math.floor(xp));
+  let level = 1;
+  while (level < MAX_LEVEL && v >= thresholdForLevel(level + 1)) {
+    level++;
+  }
+  return level;
+}
+
+interface LevelInfo {
+  level: number;
+  xp: number;
+  level_start_xp: number;
+  next_level_xp: number | null;
+  xp_into_level: number;
+  xp_for_level: number | null;
+  progress: number;
+}
+
+function levelInfo(xp: number): LevelInfo {
+  const v = Math.max(0, Math.floor(xp));
+  const level = levelFromXp(v);
+  const level_start_xp = thresholdForLevel(level);
+  const isMax = level >= MAX_LEVEL;
+  const next_level_xp = isMax ? null : thresholdForLevel(level + 1);
+  const xp_into_level = v - level_start_xp;
+  const xp_for_level = isMax ? null : (next_level_xp! - level_start_xp);
+  const progress = isMax ? 1 : Math.min(1, xp_into_level / Math.max(1, xp_for_level!));
+  return { level, xp: v, level_start_xp, next_level_xp, xp_into_level, xp_for_level, progress };
+}
+
+const XP_AWARDS = {
+  compete: 25,
+  podium: 25,
+  runner_up: 15,
+  winner: 30,
+  token_bonus_max: 15,
+};
+
+function xpForRaceResult(rank: number): number {
+  let xp = XP_AWARDS.compete;
+  if (rank <= 3) xp += XP_AWARDS.podium;
+  if (rank === 2) xp += XP_AWARDS.runner_up;
+  if (rank === 1) xp += XP_AWARDS.winner;
+  return xp;
+}
+
+function xpForTokenBonus(rank: number, tokens: number, winner_tokens: number): number {
+  if (rank === 1) return XP_AWARDS.token_bonus_max;
+  if (winner_tokens <= 0) return 0;
+  const ratio = Math.max(0, tokens) / winner_tokens;
+  return Math.round(Math.min(1, ratio) * XP_AWARDS.token_bonus_max);
+}
+
+function xpForRaceFinish(rank: number, tokens: number, winner_tokens: number, live_xp: number = 0): number {
+  return xpForRaceResult(rank) + xpForTokenBonus(rank, tokens, winner_tokens) + live_xp;
+}
+
+// Confetti simulation
+interface ConfettiParticle {
+  x: number;
+  y: number;
+  r: number;
+  d: number;
+  color: string;
+  tilt: number;
+  tiltAngleIncremental: number;
+  tiltAngle: number;
+}
+
+function startConfettiAnimation(canvas: HTMLCanvasElement) {
+  const ctx = canvas.getContext('2d')!;
+  let width = (canvas.width = window.innerWidth);
+  let height = (canvas.height = window.innerHeight);
+  
+  const resizeHandler = () => {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+  };
+  window.addEventListener('resize', resizeHandler);
+  
+  const colors = ['#ffd166', '#7bed9f', '#a68bd8', '#ff6b6b', '#4db8ff', '#ffffff'];
+  const particles: ConfettiParticle[] = [];
+  const maxParticles = 120;
+  
+  for (let i = 0; i < maxParticles; i++) {
+    particles.push({
+      x: Math.random() * width,
+      y: Math.random() * height - height,
+      r: Math.random() * 6 + 4,
+      d: Math.random() * 2 + 1,
+      color: colors[i % colors.length],
+      tilt: Math.random() * 10 - 5,
+      tiltAngleIncremental: Math.random() * 0.07 + 0.02,
+      tiltAngle: Math.random() * Math.PI
+    });
+  }
+  
+  let animationId = 0;
+  const draw = () => {
+    ctx.clearRect(0, 0, width, height);
+    
+    for (let i = 0; i < maxParticles; i++) {
+      const p = particles[i];
+      p.tiltAngle += p.tiltAngleIncremental;
+      p.y += (Math.cos(p.d) + 3 + p.r / 2) / 2;
+      p.x += Math.sin(p.tiltAngle) * 0.5;
+      p.tilt = Math.sin(p.tiltAngle - i / 3) * 15;
+      
+      ctx.beginPath();
+      ctx.lineWidth = p.r / 2;
+      ctx.strokeStyle = p.color;
+      ctx.moveTo(p.x + p.tilt + p.r / 2, p.y);
+      ctx.lineTo(p.x + p.tilt, p.y + p.tilt + p.r / 2);
+      ctx.stroke();
+      
+      // Recycle particle if it falls off screen
+      if (p.y > height) {
+        particles[i] = {
+          x: Math.random() * width,
+          y: -20,
+          r: p.r,
+          d: p.d,
+          color: p.color,
+          tilt: Math.random() * 10 - 5,
+          tiltAngleIncremental: p.tiltAngleIncremental,
+          tiltAngle: p.tiltAngle
+        };
+      }
+    }
+    
+    animationId = requestAnimationFrame(draw);
+  };
+  
+  draw();
+  
+  return () => {
+    cancelAnimationFrame(animationId);
+    window.removeEventListener('resize', resizeHandler);
+  };
+}
+
+// Podium & Confetti Overlay State
+const showFinishedOverlay = ref(false);
+const confettiCanvas = ref<HTMLCanvasElement | null>(null);
+let cleanConfetti: (() => void) | null = null;
+
+function triggerFinishedConfetti() {
+  showFinishedOverlay.value = true;
+  setTimeout(() => {
+    if (confettiCanvas.value) {
+      if (cleanConfetti) cleanConfetti();
+      cleanConfetti = startConfettiAnimation(confettiCanvas.value);
+    }
+  }, 100);
+}
+
+// 3D Podium Previews
+interface PodiumPreview {
+  canvas: HTMLCanvasElement;
+  scene: THREE.Scene;
+  camera: THREE.PerspectiveCamera;
+  renderer: THREE.WebGLRenderer;
+  horse: Horse;
+  clock: THREE.Clock;
+  animationFrameId: number;
+}
+const activePreviews: Record<string, PodiumPreview> = {};
+
+function initPreview(canvas: HTMLCanvasElement, position: string, colors: HorseColors) {
+  const scene = new THREE.Scene();
+  
+  // Set up camera
+  const camera = new THREE.PerspectiveCamera(38, canvas.clientWidth / canvas.clientHeight, 0.1, 100);
+  camera.position.set(-0.2, 1.35, 4.6); // look slightly down from front-left iso, adjusted for 50% scale horse
+  camera.lookAt(0.3, 1.1, 0);
+
+  // Set up renderer
+  const renderer = new THREE.WebGLRenderer({
+    canvas,
+    alpha: true,
+    antialias: true
+  });
+  renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+  // Add lights
+  const ambient = new THREE.AmbientLight(0xffffff, 1.8);
+  scene.add(ambient);
+
+  const dirLight = new THREE.DirectionalLight(0xffffff, 2.5);
+  dirLight.position.set(5, 10, 7);
+  scene.add(dirLight);
+
+  const fillLight = new THREE.DirectionalLight(0xffeedd, 1.2);
+  fillLight.position.set(-5, 2, -2);
+  scene.add(fillLight);
+
+  // Instantiate 3D Horse
+  const horse = new Horse({
+    color: 0xffffff,
+    index: position === 'first' ? 0 : position === 'second' ? 1 : 2,
+    initialProgress: 0,
+    speed: 0.02,
+    laneOffset: 0,
+    name: `podium-${position}`,
+    colors: colors
+  });
+  horse.group.scale.multiplyScalar(0.5); // Reduce horse model scale by 50% but keep viewport same
+  scene.add(horse.group);
+
+  const clock = new THREE.Clock();
+  let animationFrameId = 0;
+  let previewRotation = -Math.PI / 2;
+
+  const animate = () => {
+    const delta = Math.min(clock.getDelta(), 0.033);
+    
+    // Animate the horse running/galloping in place
+    horse.updatePreview(delta, 0.02);
+    
+    // Rotate horse slowly in place for 3D inspection (applied after updatePreview sets it)
+    previewRotation += delta * 0.45;
+    horse.group.rotation.y = previewRotation;
+    
+    renderer.render(scene, camera);
+    animationFrameId = requestAnimationFrame(animate);
+  };
+  
+  animate();
+
+  activePreviews[position] = {
+    canvas,
+    scene,
+    camera,
+    renderer,
+    horse,
+    clock,
+    animationFrameId
+  };
+}
+
+function cleanupPreview(position: string) {
+  const prev = activePreviews[position];
+  if (!prev) return;
+
+  cancelAnimationFrame(prev.animationFrameId);
+  prev.renderer.dispose();
+  
+  // Dispose scene nodes
+  prev.scene.traverse((obj) => {
+    if (obj instanceof THREE.Mesh) {
+      obj.geometry.dispose();
+      if (Array.isArray(obj.material)) {
+        obj.material.forEach((m) => m.dispose());
+      } else {
+        obj.material.dispose();
+      }
+    }
+  });
+
+  delete activePreviews[position];
+}
+
+function setPodiumCanvasRef(el: any, position: string, colors: HorseColors) {
+  if (!el) {
+    cleanupPreview(position);
+    return;
+  }
+  if (activePreviews[position]) {
+    return; // Already initialized
+  }
+  setTimeout(() => {
+    if (el) {
+      initPreview(el, position, colors);
+    }
+  }, 50);
+}
+
+function getPodiumColor(position: string) {
+  if (position === 'first') return '#e7d17c';
+  if (position === 'second') return '#b0b5bc';
+  return '#cd7f32';
+}
+
+function getPillarNumber(position: string) {
+  if (position === 'first') return '1';
+  if (position === 'second') return '2';
+  return '3';
+}
+
 function deselectHorse() {
   if (derbyScene) {
     derbyScene.selectedHorse = null;
@@ -123,12 +427,20 @@ onMounted(() => {
   };
 
   // Wire API update listeners
+  let prevStatus = '';
   raceClient.onRaceUpdate = (race) => {
+    const isNewFinish = race.status === 'finished' && prevStatus !== 'finished';
+    prevStatus = race.status;
+
     joinedRace.value = race;
     timeLeftSeconds.value = race.time_left_seconds;
     derbyScene?.updateLiveRace(race);
     isPolling.value = false;
     processAchievements(race);
+
+    if (isNewFinish) {
+      triggerFinishedConfetti();
+    }
   };
 
   raceClient.onRaceError = (err) => {
@@ -153,6 +465,13 @@ onBeforeUnmount(() => {
     window.clearInterval(countdownInterval);
     countdownInterval = null;
   }
+  if (cleanConfetti) {
+    cleanConfetti();
+    cleanConfetti = null;
+  }
+  cleanupPreview('first');
+  cleanupPreview('second');
+  cleanupPreview('third');
   derbyScene?.dispose();
   derbyScene = null;
 });
@@ -183,6 +502,10 @@ async function joinRace() {
       }
       
       raceClient.startPolling(2000);
+
+      if (initialRace.status === 'finished') {
+        triggerFinishedConfetti();
+      }
     } else {
       errorMessage.value = 'Race not found.';
       isPolling.value = false;
@@ -201,6 +524,11 @@ function leaveRace() {
   errorMessage.value = '';
   lastSeenEventTimes.clear();
   activeToasts.value = [];
+  showFinishedOverlay.value = false;
+  if (cleanConfetti) {
+    cleanConfetti();
+    cleanConfetti = null;
+  }
   derbyScene?.clearLiveRace();
 }
 
@@ -237,6 +565,46 @@ const formattedTime = computed(() => {
 const sortedLiveHorses = computed(() => {
   if (!joinedRace.value) return [];
   return [...joinedRace.value.horses].sort((a, b) => a.rank - b.rank);
+});
+
+const podiumHorses = computed(() => {
+  if (!joinedRace.value) return [];
+  const sorted = [...joinedRace.value.horses].sort((a, b) => a.rank - b.rank);
+  const winnerTokens = sorted[0]?.current_tokens ?? 0;
+  
+  return sorted.map(h => {
+    const liveXp = h.live_xp || 0;
+    const xpBefore = h.xp;
+    const xpAwarded = xpForRaceFinish(h.rank, h.current_tokens, winnerTokens, liveXp);
+    const xpAfter = xpBefore + xpAwarded;
+    const beforeInfo = levelInfo(xpBefore);
+    const afterInfo = levelInfo(xpAfter);
+    const levelledUp = afterInfo.level > beforeInfo.level;
+    
+    return {
+      ...h,
+      xpAwarded,
+      xpBefore,
+      xpAfter,
+      beforeInfo,
+      afterInfo,
+      levelledUp
+    };
+  });
+});
+
+const visualPodium = computed(() => {
+  const horses = podiumHorses.value;
+  if (horses.length === 0) return [];
+  const first = horses[0];
+  const second = horses[1] || null;
+  const third = horses[2] || null;
+  
+  const result = [];
+  if (second) result.push({ position: 'second', data: second, badge: '🥈', label: '2nd' });
+  if (first) result.push({ position: 'first', data: first, badge: '🥇', label: '1st' });
+  if (third) result.push({ position: 'third', data: third, badge: '🥉', label: '3rd' });
+  return result;
 });
 
 function formatTimeLeft(seconds: number) {
@@ -300,6 +668,15 @@ function formatTimeLeft(seconds: number) {
             <span class="time-label">Time Remaining:</span>
             <span class="time-val font-mono">{{ formatTimeLeft(timeLeftSeconds) }}</span>
           </div>
+
+          <button 
+            v-if="joinedRace.status === 'finished'" 
+            type="button" 
+            class="show-standings-btn" 
+            @click="triggerFinishedConfetti"
+          >
+            🏆 View Standings
+          </button>
 
           <div class="leaderboard-container">
             <h3>Leaderboard</h3>
@@ -414,6 +791,110 @@ function formatTimeLeft(seconds: number) {
             </button>
             <button type="button" @click="resetRace">Reset</button>
           </div>
+        </div>
+      </div>
+      <!-- Confetti Canvas for Celebrations -->
+      <canvas v-if="showFinishedOverlay" ref="confettiCanvas" class="confetti-canvas"></canvas>
+
+      <!-- Finished Podium Modal Overlay -->
+      <div v-if="joinedRace && joinedRace.status === 'finished' && showFinishedOverlay" class="podium-overlay">
+        <div class="podium-modal">
+          <h2>🏆 Final Standings 🏆</h2>
+          
+          <div class="podium-pedestals">
+            <div 
+              v-for="p in visualPodium" 
+              :key="p.data.horse_id" 
+              :class="['podium-column', p.position]"
+            >
+              <!-- Horse Card Details -->
+              <div class="podium-card" :style="{ borderTopColor: p.data.colors.saddle }">
+                <!-- 3D Horse model rendered in canvas (protrudes out of the top of the card) -->
+                <canvas :ref="el => setPodiumCanvasRef(el, p.position, p.data.colors)" class="podium-horse-canvas"></canvas>
+
+                <!-- Medal & Position Label (now lower than the picture) -->
+                <div class="podium-badge-wrapper">
+                  <div class="podium-badge">{{ p.badge }}</div>
+                  <span class="podium-place-label">{{ p.label }}</span>
+                </div>
+
+                <h3 class="podium-horse-name">{{ p.data.name }}</h3>
+                <p class="podium-jockey-name">by {{ p.data.user_name }}</p>
+                
+                <div class="podium-tokens-count font-mono">
+                  {{ p.data.current_tokens.toLocaleString() }} tokens
+                </div>
+                
+                <div class="podium-xp-awards">
+                  <span class="podium-level-chip">Lvl. {{ p.data.afterInfo.level }}</span>
+                  <span class="podium-xp-gained">+{{ p.data.xpAwarded }} XP</span>
+                </div>
+                
+                <!-- Animated XP bar -->
+                <div class="podium-xp-bar">
+                  <div 
+                    class="podium-xp-bar-fill animate-fill" 
+                    :style="{ '--target-width': (p.data.afterInfo.progress * 100) + '%' }"
+                  ></div>
+                </div>
+                
+                <div class="podium-xp-text font-mono">
+                  {{ p.data.afterInfo.xp_into_level }} / {{ p.data.afterInfo.xp_for_level }} XP
+                </div>
+                
+                <div v-if="p.data.levelledUp" class="podium-level-up">
+                  LEVEL UP!
+                </div>
+              </div>
+              
+              <!-- Pedestal Pillar base -->
+              <div class="podium-pillar">
+                <span class="pillar-number">{{ getPillarNumber(p.position) }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Standings table for remaining positions -->
+          <div v-if="podiumHorses.length > 3" class="podium-rest-container">
+            <table class="podium-rest-table">
+              <thead>
+                <tr>
+                  <th class="text-left">Pos</th>
+                  <th class="text-left">Horse</th>
+                  <th class="text-right">Tokens</th>
+                  <th class="text-right">XP Earned</th>
+                  <th class="text-right">Level</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr 
+                  v-for="horse in podiumHorses.slice(3)" 
+                  :key="horse.horse_id"
+                >
+                  <td class="font-mono text-left">{{ horse.rank }}</td>
+                  <td class="text-left">
+                    <span class="color-dot" :style="{ backgroundColor: horse.colors.saddle }"></span>
+                    <b>{{ horse.name }}</b>
+                    <span class="jockey-sub text-muted"> (by {{ horse.user_name }})</span>
+                  </td>
+                  <td class="font-mono text-right">{{ horse.current_tokens.toLocaleString() }}</td>
+                  <td class="font-mono text-right text-green">+{{ horse.xpAwarded }} XP</td>
+                  <td class="font-mono text-right">
+                    <span v-if="horse.levelledUp" class="text-green">
+                      Lvl. {{ horse.beforeInfo.level }} → {{ horse.afterInfo.level }}
+                    </span>
+                    <span v-else>
+                      Lvl. {{ horse.afterInfo.level }}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <button type="button" class="podium-close-btn" @click="showFinishedOverlay = false">
+            Dismiss Standings
+          </button>
         </div>
       </div>
     </section>

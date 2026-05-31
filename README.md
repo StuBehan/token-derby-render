@@ -65,6 +65,11 @@ http://localhost:5173/?debug=perf
 - Vite
 - TypeScript
 
+## Shared & Derived Logic
+
+Because the `@token-derby/shared` library is a private package, this repo hosts local copies of critical server-side leveling, color indexing, and API data models. See [DERIVED_LOGIC.md](file:///home/stu/projects/token-derby-render/DERIVED_LOGIC.md) for details on files that must be synchronized.
+
 ## License
 
 MIT
+
