@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Horse } from './Horse';
 import { HorseView, RaceView } from './RaceClient';
-import { getLaneCenterOffset } from './TrackLayout';
+import { getLaneCenterOffset, getDynamicLaneOffset } from './TrackLayout';
 
 const TOTAL_LAPS = 5;
 
@@ -55,7 +55,7 @@ export class RaceSyncController {
           index,
           initialProgress: this.getInitialProgress(apiHorse, leaderTokens, elapsed),
           speed: 0,
-          laneOffset: getLaneCenterOffset(index),
+          laneOffset: getDynamicLaneOffset(index, apiHorses.length),
           name: apiHorse.name,
           colors: apiHorse.colors,
         });

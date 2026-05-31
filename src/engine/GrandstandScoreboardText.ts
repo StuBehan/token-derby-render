@@ -2,14 +2,7 @@ import { Horse } from './Horse';
 import { RaceView } from './RaceClient';
 import { WeatherType } from './Weather';
 
-const DEFAULT_HORSE_NAMES = [
-  'Glinting Gold',
-  'Blue Bullet',
-  'Crimson Comet',
-  'Green Gale',
-  'Purple Pegasus',
-  'Orange Outlaw',
-];
+
 
 export class GrandstandScoreboardText {
   private readonly sortedHorses: Horse[] = [];
@@ -30,8 +23,8 @@ export class GrandstandScoreboardText {
 
     const leader = this.sortedHorses[0];
     const runnerUp = this.sortedHorses[1];
-    const leaderName = leader ? this.getHorseName(leader.index) : 'NONE';
-    const runnerUpName = runnerUp ? this.getHorseName(runnerUp.index) : 'NONE';
+    const leaderName = leader ? leader.name : 'NONE';
+    const runnerUpName = runnerUp ? runnerUp.name : 'NONE';
 
     if (liveRace) {
       if (liveRace.status === 'pending') {
@@ -66,9 +59,5 @@ export class GrandstandScoreboardText {
     const runnerUpLane = runnerUp ? runnerUp.index + 1 : '-';
 
     return `  • LEADER: ${leaderName.toUpperCase()} (LANE ${leaderLane})  • 2ND: ${runnerUpName.toUpperCase()} (LANE ${runnerUpLane})  • TIME: ${timeStr}  • WEATHER: ${weather.replace('_', ' ').toUpperCase()}  `;
-  }
-
-  private getHorseName(index: number) {
-    return DEFAULT_HORSE_NAMES[index % DEFAULT_HORSE_NAMES.length];
   }
 }

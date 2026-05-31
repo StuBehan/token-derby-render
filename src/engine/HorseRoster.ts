@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Horse } from './Horse';
-import { getLaneCenterOffset } from './TrackLayout';
+import { getLaneCenterOffset, getDynamicLaneOffset } from './TrackLayout';
 
 const DEMO_HORSE_COLORS = [0x3b2217, 0x5b3522, 0xc08a52, 0x191615, 0x7b5739, 0xefe2c8];
 
@@ -16,7 +16,7 @@ export class HorseRoster {
         index,
         initialProgress: 0.02 - index * 0.004,
         speed: randomDemoSpeed(),
-        laneOffset: getLaneCenterOffset(index),
+        laneOffset: getDynamicLaneOffset(index, DEMO_HORSE_COLORS.length),
       });
       this.horses.push(horse);
       this.scene.add(horse.group);

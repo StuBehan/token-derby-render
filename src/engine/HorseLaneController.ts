@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Horse } from './Horse';
 import { RaceView } from './RaceClient';
-import { TRACK_LANE_COUNT, getLaneCenterOffset } from './TrackLayout';
+import { TRACK_LANE_COUNT, getLaneCenterOffset, getDynamicLaneOffset } from './TrackLayout';
 
 const HORSE_LOOK_AHEAD_PROGRESS = 0.035;
 const HORSE_SIDE_BY_SIDE_PROGRESS = 0.015;
@@ -23,7 +23,7 @@ export function updateHorseLaneTargets(
       : false;
 
     if (shouldBeInStartingLane) {
-      targetOffset = getLaneCenterOffset(horseA.index);
+      targetOffset = getDynamicLaneOffset(horseA.index, horses.length);
     } else {
       horses.forEach((horseB) => {
         if (horseA === horseB) return;

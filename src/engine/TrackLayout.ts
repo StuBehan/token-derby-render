@@ -15,6 +15,17 @@ export function getLaneCenterOffset(laneIndex: number) {
   return TRACK_CENTER_RADIUS - getLaneCenterRadius(laneIndex);
 }
 
+export function getDynamicLaneOffset(laneIndex: number, totalHorses: number) {
+  const innerLimit = 6.667;
+  const outerLimit = -6.667;
+  if (totalHorses <= 1) return innerLimit;
+  if (totalHorses <= 6) {
+    return 6.667 - laneIndex * 2.667;
+  }
+  const spacing = (innerLimit - outerLimit) / (totalHorses - 1);
+  return innerLimit - laneIndex * spacing;
+}
+
 export function createTrackCurve() {
   return createStadiumCurve(TRACK_STRAIGHT_HALF_LENGTH, TRACK_CENTER_RADIUS, 0.08, 28);
 }
