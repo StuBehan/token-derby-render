@@ -121,6 +121,8 @@ export class DerbyScene {
   private lastPointerY = 0;
   private readonly perfPanel = document.createElement('div');
   private readonly showPerfPanel = new URLSearchParams(window.location.search).get('debug') === 'perf';
+  private lastMouseScreenPos = new THREE.Vector2(0, 0);
+  private lastMouseIntersect: { x: number; y: number; z: number; objectName: string } | null = null;
   private perfFrameCount = 0;
   private perfElapsed = 0;
   private perfObjectCount = 0;
@@ -544,6 +546,7 @@ export class DerbyScene {
     
     // Use modular LondonSkyline class
     this.skyline = new LondonSkyline();
+    this.skyline.name = 'skyline';
     this.scene.add(this.skyline);
 
     this.addClouds();
@@ -555,8 +558,10 @@ export class DerbyScene {
       trackStraightHalfLength: TRACK_STRAIGHT_HALF_LENGTH,
       trackOuterRadius: TRACK_OUTER_RADIUS,
     });
+    this.floodlights.name = 'floodlights';
     this.scene.add(this.floodlights);
     this.grandstand = new Grandstand();
+    this.grandstand.name = 'grandstand';
     this.scene.add(this.grandstand);
     this.addFinishLine();
     this.initDustParticles();
@@ -594,6 +599,7 @@ export class DerbyScene {
       new THREE.PlaneGeometry(360, 260),
       createTexturedMaterial('grass', 0x4f7b3f, 46, 34, { roughness: 0.95 }),
     );
+    grass.name = 'grass';
     grass.rotation.x = -Math.PI / 2;
     grass.receiveShadow = true;
     this.scene.add(grass);
@@ -602,6 +608,7 @@ export class DerbyScene {
       new THREE.ShapeGeometry(this.createStadiumShape(TRACK_STRAIGHT_HALF_LENGTH, TRACK_INNER_RADIUS), 96),
       createTexturedMaterial('infield', 0x6d934a, 14, 14, { roughness: 0.9 }),
     );
+    infield.name = 'infield';
     infield.rotation.x = -Math.PI / 2;
     infield.position.y = 0.02;
     infield.receiveShadow = true;
@@ -675,7 +682,7 @@ export class DerbyScene {
       { x: -96, z: -108, width: 92, height: 15, depth: 10, color: farHillMaterial },
       { x: 8, z: -116, width: 128, height: 19, depth: 12, color: hillMaterial },
       { x: 106, z: -102, width: 78, height: 13, depth: 10, color: farHillMaterial },
-      { x: -112, z: 94, width: 96, height: 12, depth: 9, color: farHillMaterial },
+      { x: -120, z: 100, width: 40, height: 8.6, depth: 15, color: hillMaterial },
       { x: 80, z: 104, width: 118, height: 16, depth: 11, color: hillMaterial },
     ];
 
@@ -816,6 +823,7 @@ export class DerbyScene {
     if (trunkMatrices.length > 0) {
       const trunkGeom = new THREE.CylinderGeometry(0.57, 1.0, 1.0, 5); // Tapered unit geometry
       const trunkMesh = new THREE.InstancedMesh(trunkGeom, trunkMaterial, trunkMatrices.length);
+      trunkMesh.name = 'tree_trunk';
       trunkMesh.castShadow = true;
       trunkMesh.receiveShadow = true;
       trunkMatrices.forEach((m, idx) => trunkMesh.setMatrixAt(idx, m));
@@ -827,6 +835,7 @@ export class DerbyScene {
       const matrices = pineMatrices[m];
       if (matrices.length > 0) {
         const pineMesh = new THREE.InstancedMesh(pineGeom, canopyMaterials[m], matrices.length);
+        pineMesh.name = 'tree_pine';
         pineMesh.castShadow = true;
         matrices.forEach((mat, idx) => pineMesh.setMatrixAt(idx, mat));
         this.scene.add(pineMesh);
@@ -838,6 +847,7 @@ export class DerbyScene {
       const matrices = deciduousMatrices[m];
       if (matrices.length > 0) {
         const deciduousMesh = new THREE.InstancedMesh(deciduousGeom, canopyMaterials[m], matrices.length);
+        deciduousMesh.name = 'tree_deciduous';
         deciduousMesh.castShadow = true;
         matrices.forEach((mat, idx) => deciduousMesh.setMatrixAt(idx, mat));
         this.scene.add(deciduousMesh);
@@ -1045,6 +1055,7 @@ export class DerbyScene {
     if (railMatrices.length > 0) {
       const railGeom = new THREE.BoxGeometry(1.0, 1.0, 1.0); // Unit geometry scaled in matrix
       const railMesh = new THREE.InstancedMesh(railGeom, material, railMatrices.length);
+      railMesh.name = 'fence_rail';
       railMesh.castShadow = false;
       railMatrices.forEach((m, idx) => railMesh.setMatrixAt(idx, m));
       this.scene.add(railMesh);
@@ -1053,6 +1064,7 @@ export class DerbyScene {
     if (postMatrices.length > 0) {
       const postGeom = new THREE.BoxGeometry(0.14, 2.3, 0.14);
       const postMesh = new THREE.InstancedMesh(postGeom, material, postMatrices.length);
+      postMesh.name = 'fence_post';
       postMesh.castShadow = false;
       postMatrices.forEach((m, idx) => postMesh.setMatrixAt(idx, m));
       this.scene.add(postMesh);
@@ -1061,6 +1073,7 @@ export class DerbyScene {
     if (postCapMatrices.length > 0) {
       const postCapGeom = new THREE.ConeGeometry(0.10, 0.22, 6);
       const postCapMesh = new THREE.InstancedMesh(postCapGeom, material, postCapMatrices.length);
+      postCapMesh.name = 'fence_post_cap';
       postCapMesh.castShadow = false;
       postCapMatrices.forEach((m, idx) => postCapMesh.setMatrixAt(idx, m));
       this.scene.add(postCapMesh);
@@ -1069,6 +1082,7 @@ export class DerbyScene {
     if (picketMatrices.length > 0) {
       const picketGeom = new THREE.BoxGeometry(0.04, 1.8, 0.04);
       const picketMesh = new THREE.InstancedMesh(picketGeom, material, picketMatrices.length);
+      picketMesh.name = 'fence_picket';
       picketMesh.castShadow = false;
       picketMatrices.forEach((m, idx) => picketMesh.setMatrixAt(idx, m));
       this.scene.add(picketMesh);
@@ -1077,6 +1091,7 @@ export class DerbyScene {
     if (picketCapMatrices.length > 0) {
       const picketCapGeom = new THREE.ConeGeometry(0.04, 0.12, 4);
       const picketCapMesh = new THREE.InstancedMesh(picketCapGeom, material, picketCapMatrices.length);
+      picketCapMesh.name = 'fence_picket_cap';
       picketCapMesh.castShadow = false;
       picketCapMatrices.forEach((m, idx) => picketCapMesh.setMatrixAt(idx, m));
       this.scene.add(picketCapMesh);
@@ -1163,11 +1178,38 @@ export class DerbyScene {
       );
     }
 
-    return result.filter((hill) => (
+    return result.map((hill) => this.moveHillInsideTownhouseKeepout(hill)).filter((hill) => (
       hill.width > 4 &&
       hill.depth > 2 &&
       !PARK_PATHS.some((path) => this.doesFootprintOverlapPath(hill.x, hill.z, hill.width, hill.depth, path, 1.5))
     ));
+  }
+
+  private moveHillInsideTownhouseKeepout<T extends { x: number; z: number; width: number; depth: number }>(hill: T) {
+    const margin = 7;
+    const northHouseZ = -PARK_BOUNDARY_HALF_DEPTH - 45;
+    const southHouseZ = PARK_BOUNDARY_HALF_DEPTH + 45;
+    const westHouseX = -PARK_BOUNDARY_HALF_WIDTH - 42;
+    const eastHouseX = PARK_BOUNDARY_HALF_WIDTH + 42;
+    const moved = { ...hill };
+
+    if (moved.z - moved.depth / 2 <= northHouseZ + margin) {
+      moved.z = northHouseZ + margin + moved.depth / 2;
+    }
+
+    if (moved.z + moved.depth / 2 >= southHouseZ - margin) {
+      moved.z = southHouseZ - margin - moved.depth / 2;
+    }
+
+    if (moved.x - moved.width / 2 <= westHouseX + margin) {
+      moved.x = westHouseX + margin + moved.width / 2;
+    }
+
+    if (moved.x + moved.width / 2 >= eastHouseX - margin) {
+      moved.x = eastHouseX - margin - moved.width / 2;
+    }
+
+    return moved;
   }
 
   private doesFootprintOverlapPath(
@@ -1295,6 +1337,7 @@ export class DerbyScene {
       new THREE.ShapeGeometry(trackShape, 128),
       createTexturedMaterial('track', 0xa46d3f, 18, 18, { roughness: 0.98 }),
     );
+    track.name = 'track';
     track.rotation.x = -Math.PI / 2;
     track.position.y = 0.04;
     track.receiveShadow = true;
@@ -1313,6 +1356,7 @@ export class DerbyScene {
         ),
         laneMaterial,
       );
+      laneLine.name = `lane_line_${laneIndex}`;
       laneLine.receiveShadow = true;
       this.scene.add(laneLine);
     }
@@ -1337,6 +1381,7 @@ export class DerbyScene {
           ),
           railMaterial,
         );
+        rail.name = 'track_rail';
         rail.castShadow = true;
         this.scene.add(rail);
       }
@@ -1356,6 +1401,7 @@ export class DerbyScene {
 
     if (postMatrices.length > 0) {
       const instancedPosts = new THREE.InstancedMesh(postGeom, railMaterial, postMatrices.length);
+      instancedPosts.name = 'track_rail_post';
       instancedPosts.castShadow = true;
       postMatrices.forEach((m, idx) => instancedPosts.setMatrixAt(idx, m));
       this.scene.add(instancedPosts);
@@ -1380,6 +1426,7 @@ export class DerbyScene {
         trackCenterRadius: TRACK_CENTER_RADIUS,
       }
     );
+    finishLine.group.name = 'finish_line';
     this.scene.add(finishLine.group);
   }
 
@@ -1516,8 +1563,40 @@ export class DerbyScene {
 
     this.updatePerfSceneCounts();
 
+    // Perform raycast to find 3D coords under mouse
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(this.lastMouseScreenPos, this.camera);
+    const intersects = raycaster.intersectObjects(this.scene.children, true);
+    if (intersects.length > 0) {
+      const hit = intersects[0];
+      let name = '';
+      let current: THREE.Object3D | null = hit.object;
+      while (current) {
+        if (current.name) {
+          name = current.name;
+          break;
+        }
+        current = current.parent;
+      }
+      if (!name) {
+        name = hit.object.type;
+      }
+      this.lastMouseIntersect = {
+        x: hit.point.x,
+        y: hit.point.y,
+        z: hit.point.z,
+        objectName: name
+      };
+    } else {
+      this.lastMouseIntersect = null;
+    }
+
     const fps = Math.round(this.perfFrameCount / this.perfElapsed);
     const { render, memory } = this.renderer.info;
+    const coordsText = this.lastMouseIntersect
+      ? `Mouse: X: ${this.lastMouseIntersect.x.toFixed(2)}, Y: ${this.lastMouseIntersect.y.toFixed(2)}, Z: ${this.lastMouseIntersect.z.toFixed(2)} (${this.lastMouseIntersect.objectName})`
+      : 'Mouse: no intersection';
+
     this.perfPanel.innerHTML = [
       `<strong>${fps} FPS</strong>`,
       `${render.calls} calls`,
@@ -1526,6 +1605,7 @@ export class DerbyScene {
       `${this.perfLightCount} lights`,
       `${memory.geometries} geos`,
       `${memory.textures} tex`,
+      coordsText
     ].join('<br>');
 
     this.perfFrameCount = 0;
@@ -1745,6 +1825,14 @@ export class DerbyScene {
   };
 
   private handlePointerMove = (event: PointerEvent) => {
+    if (this.showPerfPanel) {
+      const rect = this.renderer.domElement.getBoundingClientRect();
+      this.lastMouseScreenPos.set(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1
+      );
+    }
+
     if (this.isPointerLooking) {
       if (this.cameraMode === 'transitioning') return; // Lock inputs during transition
 
