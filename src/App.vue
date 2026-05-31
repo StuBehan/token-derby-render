@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, computed } from 'vue';
+import { onBeforeUnmount, onMounted, ref, computed, type ComponentPublicInstance } from 'vue';
 import * as THREE from 'three';
 import { DerbyScene } from './engine/DerbyScene';
 import { Horse } from './engine/Horse';
@@ -375,9 +375,16 @@ function cleanupPreview(position: string) {
   delete activePreviews[position];
 }
 
-function setPodiumCanvasRef(el: any, position: string, colors: HorseColors) {
+function getErrorMessage(err: unknown, fallback: string) {
+  return err instanceof Error ? err.message : fallback;
+}
+
+function setPodiumCanvasRef(el: Element | ComponentPublicInstance | null, position: string, colors: HorseColors) {
   if (!el) {
     cleanupPreview(position);
+    return;
+  }
+  if (!(el instanceof HTMLCanvasElement)) {
     return;
   }
   if (activePreviews[position]) {
@@ -535,8 +542,8 @@ async function joinRace() {
       errorMessage.value = 'Race not found.';
       isPolling.value = false;
     }
-  } catch (err: any) {
-    errorMessage.value = err.message || 'Error connecting to race server.';
+  } catch (err: unknown) {
+    errorMessage.value = getErrorMessage(err, 'Error connecting to race server.');
     isPolling.value = false;
   }
 }

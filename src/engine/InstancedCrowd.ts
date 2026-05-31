@@ -87,7 +87,7 @@ export class InstancedCrowd extends THREE.Group {
    * Call this after all rows have been registered via addRow().
    */
   private spectators: SpectatorData[] = [];
-  private animatedMaterials: any[] = [];
+  private animatedMaterials: Record<string, THREE.IUniform>[] = [];
 
   /**
    * Register spectators for one seating segment in one row.

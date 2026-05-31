@@ -127,9 +127,9 @@ export class RaceClient {
       }
       const data = await response.json() as RaceView;
       this.onRaceUpdate?.(data);
-    } catch (error: any) {
-      if (error.name === 'AbortError') return;
-      this.onRaceError?.(error);
+    } catch (error: unknown) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+      this.onRaceError?.(error instanceof Error ? error : new Error('Unknown race polling error'));
     }
   }
 
