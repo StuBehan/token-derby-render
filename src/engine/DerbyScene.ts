@@ -26,9 +26,15 @@ const TRACK_LANE_COUNT = 6;
 const TRACK_LANE_WIDTH = (TRACK_OUTER_RADIUS - TRACK_INNER_RADIUS) / TRACK_LANE_COUNT;
 const PARK_BOUNDARY_HALF_WIDTH = 126;
 const PARK_BOUNDARY_HALF_DEPTH = 86;
-const MAX_RENDER_PIXEL_RATIO = 1.5;
-const CLOUD_DETAIL_UPDATE_INTERVAL = 0.12;
+const MAX_RENDER_PIXEL_RATIO = 1.25;
+const ULTRAWIDE_RENDER_PIXEL_RATIO = 1.0;
+const ULTRAWIDE_WIDTH_THRESHOLD = 2560;
 const MAX_DUST_PARTICLES = 250;
+const HORSE_LOOK_AHEAD_PROGRESS = 0.035;
+const HORSE_SIDE_BY_SIDE_PROGRESS = 0.015;
+const HORSE_LANE_OVERLAP_WIDTH = 1.6;
+const HORSE_INSIDE_PRIORITY_MARGIN = 0.2;
+const HORSE_OVERTAKE_LANE_STEP = 2.0;
 const UNIT_CLOUD_PUFF_GEOM = new THREE.DodecahedronGeometry(1.0, 0); // Shared unit dodecahedron for all cloud puffs (detail 0 for performance)
 const PARK_PATHS: ParkPath[] = [
   { width: 360, depth: 6.2, x: 0, z: 60, rotation: 0.03 },
@@ -116,9 +122,8 @@ export class DerbyScene {
     this.host = host;
     this.trackCurve = this.createTrackCurve();
 
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_RENDER_PIXEL_RATIO));
+    this.updateRendererPerformanceSettings();
     this.renderer.setSize(host.clientWidth, host.clientHeight);
-    this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     host.appendChild(this.renderer.domElement);
@@ -172,6 +177,8 @@ export class DerbyScene {
     this.running = true;
     this.horses.forEach((horse) => {
       horse.reset();
+      // Re-randomize speed within the [0.018, 0.024] speed band on race resets
+      horse.speed = 0.018 + Math.random() * 0.006;
     });
   }
 
@@ -628,7 +635,9 @@ export class DerbyScene {
     // 1. North Edge streetlights (Z = -122)
     for (let x = -PARK_BOUNDARY_HALF_WIDTH - 25; x <= PARK_BOUNDARY_HALF_WIDTH + 25; x += streetlightSpacing) {
       if (!this.isStreetOpening(x, -122, 6)) {
-        const streetLight = new StreetLight(new THREE.Vector3(x, 0, -122), ironMaterial, { castShadow: false });
+        const streetLight = new StreetLight(new THREE.Vector3(x, 0, -122), ironMaterial, {
+          castShadow: false,
+        });
         this.scene.add(streetLight.group);
       }
     }
@@ -636,7 +645,9 @@ export class DerbyScene {
     // 2. South Edge streetlights (Z = 122)
     for (let x = -PARK_BOUNDARY_HALF_WIDTH - 25; x <= PARK_BOUNDARY_HALF_WIDTH + 25; x += streetlightSpacing) {
       if (!this.isStreetOpening(x, 122, 6)) {
-        const streetLight = new StreetLight(new THREE.Vector3(x, 0, 122), ironMaterial, { castShadow: false });
+        const streetLight = new StreetLight(new THREE.Vector3(x, 0, 122), ironMaterial, {
+          castShadow: false,
+        });
         this.scene.add(streetLight.group);
       }
     }
@@ -644,7 +655,9 @@ export class DerbyScene {
     // 3. West Edge streetlights (X = -158)
     for (let z = -PARK_BOUNDARY_HALF_DEPTH - 25; z <= PARK_BOUNDARY_HALF_DEPTH + 25; z += streetlightSpacing) {
       if (!this.isStreetOpening(-158, z, 6)) {
-        const streetLight = new StreetLight(new THREE.Vector3(-158, 0, z), ironMaterial, { castShadow: false });
+        const streetLight = new StreetLight(new THREE.Vector3(-158, 0, z), ironMaterial, {
+          castShadow: false,
+        });
         streetLight.group.rotation.y = Math.PI / 2; // Span parallel to street
         this.scene.add(streetLight.group);
       }
@@ -653,7 +666,9 @@ export class DerbyScene {
     // 4. East Edge streetlights (X = 158)
     for (let z = -PARK_BOUNDARY_HALF_DEPTH - 25; z <= PARK_BOUNDARY_HALF_DEPTH + 25; z += streetlightSpacing) {
       if (!this.isStreetOpening(158, z, 6)) {
-        const streetLight = new StreetLight(new THREE.Vector3(158, 0, z), ironMaterial, { castShadow: false });
+        const streetLight = new StreetLight(new THREE.Vector3(158, 0, z), ironMaterial, {
+          castShadow: false,
+        });
         streetLight.group.rotation.y = Math.PI / 2; // Span parallel to street
         this.scene.add(streetLight.group);
       }
@@ -994,8 +1009,8 @@ export class DerbyScene {
         color,
         index,
         initialProgress: 0.02 - index * 0.004,
-        speed: 0.018 + index * 0.0012,
-        laneOffset: this.getLaneCenterRadius(index) - TRACK_CENTER_RADIUS,
+        speed: 0.018 + Math.random() * 0.006,
+        laneOffset: this.getLaneCenterOffset(index),
       });
       this.horses.push(horse);
       this.scene.add(horse.group);
@@ -1014,6 +1029,7 @@ export class DerbyScene {
     this.updateCameraRail(delta);
     this.updateClouds(delta);
     this.weatherManager?.update(delta, this.timeOfDay);
+    this.applyShadowPerformanceMode();
     this.skyline.update(delta, this.running);
 
     // Enable floodlights automatically at night/sunset, or during rain/storm weather
@@ -1027,7 +1043,7 @@ export class DerbyScene {
     }
 
     if (this.grandstand) {
-      const sortedHorses = [...this.horses].sort((a, b) => b.progress - a.progress);
+      const sortedHorses = [...this.horses].sort((a, b) => b.cumulativeProgress - a.cumulativeProgress);
       const leaderName = sortedHorses[0] ? this.getHorseName(sortedHorses[0].index) : 'NONE';
       const runnerUpName = sortedHorses[1] ? this.getHorseName(sortedHorses[1].index) : 'NONE';
       
@@ -1102,6 +1118,40 @@ export class DerbyScene {
   }
 
   private updateHorses(delta: number) {
+    const railLaneOffset = this.getLaneCenterOffset(0);
+    const outsideLaneOffset = this.getLaneCenterOffset(TRACK_LANE_COUNT - 1);
+
+    this.horses.forEach((horseA) => {
+      let targetOffset = railLaneOffset;
+
+      this.horses.forEach((horseB) => {
+        if (horseA === horseB) return;
+
+        let diff = horseB.progress - horseA.progress;
+        diff -= Math.round(diff);
+
+        const isAhead = diff > 0 && diff <= HORSE_LOOK_AHEAD_PROGRESS;
+        const isSideBySideInside =
+          diff >= -HORSE_SIDE_BY_SIDE_PROGRESS &&
+          diff <= 0 &&
+          horseB.laneOffset > horseA.laneOffset - HORSE_INSIDE_PRIORITY_MARGIN;
+
+        if (!isAhead && !isSideBySideInside) return;
+
+        // If B is ahead, it only blocks us if we are faster (catching up) and B is in our way
+        if (isAhead) {
+          if (horseA.speed <= horseB.speed) return;
+
+          const isBInsideOrSameLane = horseB.laneOffset > horseA.laneOffset - 1.33;
+          if (!isBInsideOrSameLane) return;
+        }
+
+        targetOffset = Math.min(targetOffset, horseB.laneOffset - HORSE_OVERTAKE_LANE_STEP);
+      });
+
+      horseA.targetLaneOffset = THREE.MathUtils.clamp(targetOffset, outsideLaneOffset, railLaneOffset);
+    });
+
     this.horses.forEach((horse) => {
       horse.update(delta, this.trackCurve);
       horse.pendingStrikes.forEach((strike) => {
@@ -1297,6 +1347,10 @@ export class DerbyScene {
 
   private getLaneCenterRadius(laneIndex: number) {
     return TRACK_INNER_RADIUS + TRACK_LANE_WIDTH * (laneIndex + 0.5);
+  }
+
+  private getLaneCenterOffset(laneIndex: number) {
+    return TRACK_CENTER_RADIUS - this.getLaneCenterRadius(laneIndex);
   }
 
   private createStadiumShape(halfStraightLength: number, radius: number) {
@@ -1663,8 +1717,33 @@ export class DerbyScene {
 
     if (width === 0 || height === 0) return;
 
+    this.updateRendererPerformanceSettings();
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height, false);
+  }
+
+  private updateRendererPerformanceSettings() {
+    const usePerformanceMode = this.host.clientWidth >= ULTRAWIDE_WIDTH_THRESHOLD;
+    const maxPixelRatio = usePerformanceMode
+      ? ULTRAWIDE_RENDER_PIXEL_RATIO
+      : MAX_RENDER_PIXEL_RATIO;
+
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPixelRatio));
+    this.renderer.shadowMap.enabled = !usePerformanceMode;
+
+    if (this.sunLight) {
+      this.sunLight.castShadow = !usePerformanceMode;
+    }
+  }
+
+  private applyShadowPerformanceMode() {
+    if (this.host.clientWidth < ULTRAWIDE_WIDTH_THRESHOLD) return;
+
+    this.renderer.shadowMap.enabled = false;
+
+    if (this.sunLight) {
+      this.sunLight.castShadow = false;
+    }
   }
 }

@@ -17,8 +17,10 @@ export class Horse {
   private rightRein!: THREE.Line;
   private hoverRing!: THREE.Mesh;
   public readonly index: number;
-  public readonly speed: number;
-  public readonly laneOffset: number;
+  public speed: number;
+  public laneOffset: number;
+  public targetLaneOffset: number;
+  private readonly initialLaneOffset: number;
   private readonly initialProgress: number;
   private jockey!: Person;
   private prevSwings: number[] = [0, 0, 0, 0];
@@ -36,15 +38,19 @@ export class Horse {
   public pendingStrikes: { position: THREE.Vector3; backwardDir: THREE.Vector3 }[] = [];
 
   public progress: number;
+  public cumulativeProgress: number;
   public phase: number;
 
   constructor(config: HorseConfig) {
     this.index = config.index;
     this.speed = config.speed;
     this.laneOffset = config.laneOffset;
+    this.initialLaneOffset = config.laneOffset;
+    this.targetLaneOffset = config.laneOffset;
     this.initialProgress = config.initialProgress;
 
     this.progress = this.initialProgress;
+    this.cumulativeProgress = this.initialProgress;
     this.phase = this.index * 0.7;
 
     this.group = new THREE.Group();
@@ -257,18 +263,27 @@ export class Horse {
 
   public reset() {
     this.progress = this.initialProgress;
+    this.cumulativeProgress = this.initialProgress;
     this.phase = this.index * 0.7;
     this.prevSwings = [0, 0, 0, 0];
     this.pendingStrikes.length = 0;
+    this.laneOffset = this.initialLaneOffset;
+    this.targetLaneOffset = this.initialLaneOffset;
   }
 
   public update(delta: number, trackCurve: THREE.CatmullRomCurve3) {
     this.phase += delta * 12;
-    this.progress += this.speed * delta;
+    const progressGain = this.speed * delta;
+    this.progress += progressGain;
+    this.cumulativeProgress += progressGain;
 
     if (this.progress >= 1) {
       this.progress = this.progress - 1;
     }
+
+    // Smoothly steer towards target lane offset
+    const steerSpeed = 3.5;
+    this.laneOffset += (this.targetLaneOffset - this.laneOffset) * delta * steerSpeed;
 
     const position = trackCurve.getPointAt(Math.max(0, this.progress));
     const tangent = trackCurve.getTangentAt(Math.max(0, this.progress)).normalize();
