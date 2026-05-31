@@ -15,6 +15,7 @@ let derbyScene: DerbyScene | null = null;
 const selectedHorse = ref<Horse | null>(null);
 const selectedHorsePos = ref<{ x: number; y: number; isBehind: boolean } | null>(null);
 const currentCamMode = ref<'free' | 'follow' | 'jockey'>('free');
+const isCameraLocked = ref(false);
 
 // Live Race state
 const joinCodeInput = ref('');
@@ -428,6 +429,12 @@ onMounted(() => {
     timeOfDayRef.value = time;
   };
 
+  // Set up the camera lock update callback
+  derbyScene.onCameraLockUpdate = (locked: boolean) => {
+    isCameraLocked.value = locked;
+  };
+  isCameraLocked.value = derbyScene.isCameraLocked;
+
   derbyScene.onHorseSelected = (horse) => {
     selectedHorse.value = horse;
     if (horse && derbyScene) {
@@ -642,6 +649,17 @@ function formatTimeLeft(seconds: number) {
   <main class="app-shell">
     <section class="race-stage" aria-label="Token Derby 3D race renderer">
       <div ref="viewport" class="race-viewport"></div>
+
+      <!-- Camera Locked Banner -->
+      <transition name="fade">
+        <div v-if="isCameraLocked" class="camera-locked-banner">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lock-icon">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+          <span>CAMERA LOCKED</span>
+        </div>
+      </transition>
 
       <!-- Floating Horse Info Tag -->
       <div 

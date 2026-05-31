@@ -21,6 +21,8 @@ export class Grandstand extends THREE.Group {
   private scoreboardCtx!: CanvasRenderingContext2D;
   private scoreboardTexture!: THREE.CanvasTexture;
   private scrollOffset = 0;
+  private crowd!: InstancedCrowd;
+  private crowdTime = 0.0;
 
   constructor(config: GrandstandConfig = {}) {
     super();
@@ -57,7 +59,8 @@ export class Grandstand extends THREE.Group {
     const crowdColors = [0x1f4a63, 0xb94f3f, 0xd0a23b, 0x3f6a45, 0x6a4f8f, 0xd8d2c5];
 
     // GPU-instanced crowd renderer
-    const crowd = new InstancedCrowd();
+    this.crowd = new InstancedCrowd();
+    const crowd = this.crowd;
 
     const standWidth = this.config.width;
     const seatRowWidth = standWidth - 0.4;
@@ -585,6 +588,11 @@ export class Grandstand extends THREE.Group {
   }
 
   public updateScoreboard(delta: number, text: string) {
+    this.crowdTime += delta;
+    if (this.crowd) {
+      this.crowd.update(this.crowdTime);
+    }
+
     if (!this.scoreboardCtx) return;
 
     const ctx = this.scoreboardCtx;

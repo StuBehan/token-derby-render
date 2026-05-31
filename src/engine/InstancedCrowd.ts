@@ -72,8 +72,7 @@ type BodyPart = 'torso' | 'head' | 'helmet' | 'upperArmL' | 'upperArmR' | 'forea
 
 interface InstanceBucket {
   geometry: THREE.BufferGeometry;
-  colorHex: number;
-  matrices: THREE.Matrix4[];
+  instances: { matrix: THREE.Matrix4; colorHex: number; phase: number }[];
 }
 
 export class InstancedCrowd extends THREE.Group {
@@ -88,6 +87,7 @@ export class InstancedCrowd extends THREE.Group {
    * Call this after all rows have been registered via addRow().
    */
   private spectators: SpectatorData[] = [];
+  private animatedMaterials: any[] = [];
 
   /**
    * Register spectators for one seating segment in one row.
@@ -108,8 +108,8 @@ export class InstancedCrowd extends THREE.Group {
     const hairColors = [0x1a1105, 0x4a3728, 0x2d1f18, 0xd6c585, 0xa37b45];
 
     for (let column = 0; column < columns; column++) {
-      const jitterX = (stableNoise(row, column, 1) - 0.5) * 0.46;
-      const jitterZ = (stableNoise(row, column, 2) - 0.5) * 0.38;
+      const jitterX = (stableNoise(row, column, 1) - 0.5) * 0.12; // subtle shift, won't slide off seat
+      const jitterZ = (stableNoise(row, column, 2) - 0.5) * 0.08; // subtle shift, won't clip backrest
       const x = startX + column * spacing + jitterX;
 
       // 8% chance of empty seat
@@ -142,7 +142,7 @@ export class InstancedCrowd extends THREE.Group {
       }
 
       // Build world matrix for the spectator group
-      const groupY = y + 1.16 * scale;
+      const groupY = y + 0.54 * scale;
       const groupZ = z + jitterZ;
       const groupRotY = -Math.PI / 2 + (stableNoise(row, column, 6) - 0.5) * 0.34;
       const groupScale = scale * 0.85;
@@ -173,24 +173,24 @@ export class InstancedCrowd extends THREE.Group {
    * Must be called after all addRow() calls.
    */
   build() {
-    // Buckets keyed by "bodyPart|colorHex"
-    const buckets = new Map<string, InstanceBucket>();
+    // Buckets keyed by "bodyPart"
+    const buckets = new Map<BodyPart, InstanceBucket>();
 
     const skinHex = 0xf2d4ac;
     const darkHex = 0x222222;
 
-    const getOrCreate = (part: BodyPart, geom: THREE.BufferGeometry, colorHex: number): InstanceBucket => {
-      const key = `${part}|${colorHex}`;
-      let bucket = buckets.get(key);
+    const getOrCreate = (part: BodyPart, geom: THREE.BufferGeometry): InstanceBucket => {
+      let bucket = buckets.get(part);
       if (!bucket) {
-        bucket = { geometry: geom, colorHex, matrices: [] };
-        buckets.set(key, bucket);
+        bucket = { geometry: geom, instances: [] };
+        buckets.set(part, bucket);
       }
       return bucket;
     };
 
     // For each spectator, compute all body part world-space matrices and
-    // bucket them by (geometry, colour).
+    // bucket them by body part.
+    let specIndex = 0;
     for (const spec of this.spectators) {
       // Build the hierarchical pose matrices the same way Person.ts does,
       // then combine them with the spectator's world matrix.
@@ -199,19 +199,19 @@ export class InstancedCrowd extends THREE.Group {
       _euler.set(0, 0, spec.torsoLean);
       const torsoLocal = mat4FromPRS(0, 0, 0, _euler);
       const torsoWorld = new THREE.Matrix4().multiplyMatrices(spec.worldMatrix, torsoLocal);
-      getOrCreate('torso', _torsoGeom, spec.clothColorHex).matrices.push(torsoWorld.clone());
+      getOrCreate('torso', _torsoGeom).instances.push({ matrix: torsoWorld.clone(), colorHex: spec.clothColorHex, phase: specIndex });
 
       // -- Head (child of torso) --
       _euler.set(0, 0, spec.headTilt);
       const headLocal = mat4FromPRS(0.18, 0.705, 0, _euler);
       const headWorld = new THREE.Matrix4().multiplyMatrices(torsoWorld, headLocal);
-      getOrCreate('head', _headGeom, skinHex).matrices.push(headWorld.clone());
+      getOrCreate('head', _headGeom).instances.push({ matrix: headWorld.clone(), colorHex: skinHex, phase: specIndex });
 
       // -- Helmet cap (child of head) --
       _euler.set(0, 0, 0);
       const helmetLocal = mat4FromPRS(0, 0.075, 0, _euler);
       const helmetWorld = new THREE.Matrix4().multiplyMatrices(headWorld, helmetLocal);
-      getOrCreate('helmet', _helmetGeom, spec.helmetColorHex).matrices.push(helmetWorld.clone());
+      getOrCreate('helmet', _helmetGeom).instances.push({ matrix: helmetWorld.clone(), colorHex: spec.helmetColorHex, phase: specIndex });
 
       // -- Arms --
       const armData: [BodyPart, BodyPart, BodyPart, number, number][] = [
@@ -229,7 +229,7 @@ export class InstancedCrowd extends THREE.Group {
         _euler.set(0, 0, 0);
         const upperArmMesh = mat4FromPRS(0, -0.18, 0, _euler);
         const upperArmWorld = new THREE.Matrix4().multiplyMatrices(upperArmPivotWorld, upperArmMesh);
-        getOrCreate(upperPart, _upperArmGeom, spec.clothColorHex).matrices.push(upperArmWorld.clone());
+        getOrCreate(upperPart, _upperArmGeom).instances.push({ matrix: upperArmWorld.clone(), colorHex: spec.clothColorHex, phase: specIndex });
 
         // Forearm pivot (child of upper arm pivot, at elbow)
         const forearmPivot = mat4FromPRS(0, -0.36, 0, _euler);
@@ -238,12 +238,12 @@ export class InstancedCrowd extends THREE.Group {
         // Forearm mesh offset
         const forearmMesh = mat4FromPRS(0, -0.165, 0, _euler);
         const forearmWorld = new THREE.Matrix4().multiplyMatrices(forearmPivotWorld, forearmMesh);
-        getOrCreate(forearmPart, _forearmGeom, spec.clothColorHex).matrices.push(forearmWorld.clone());
+        getOrCreate(forearmPart, _forearmGeom).instances.push({ matrix: forearmWorld.clone(), colorHex: spec.clothColorHex, phase: specIndex });
 
         // Hand (child of forearm pivot)
         const handMesh = mat4FromPRS(0, -0.33 - 0.06, 0, _euler);
         const handWorld = new THREE.Matrix4().multiplyMatrices(forearmPivotWorld, handMesh);
-        getOrCreate(handPart, _handGeom, skinHex).matrices.push(handWorld.clone());
+        getOrCreate(handPart, _handGeom).instances.push({ matrix: handWorld.clone(), colorHex: skinHex, phase: specIndex });
       }
 
       // -- Legs (children of torso) --
@@ -257,39 +257,81 @@ export class InstancedCrowd extends THREE.Group {
         _euler.set(rx, 0, rz);
         const legLocal = mat4FromPRS(0.12, -0.54, zOff, _euler);
         const legWorld = new THREE.Matrix4().multiplyMatrices(torsoWorld, legLocal);
-        getOrCreate(part, _legGeom, darkHex).matrices.push(legWorld.clone());
+        getOrCreate(part, _legGeom).instances.push({ matrix: legWorld.clone(), colorHex: darkHex, phase: specIndex });
       }
+      specIndex++;
     }
 
-    // Now create one InstancedMesh per bucket
+    // Create 3 material instances for the 3 roughness configurations
     const matCache = new Map<number, THREE.MeshStandardMaterial>();
-    const getMat = (hex: number, roughness = 0.55): THREE.MeshStandardMaterial => {
-      let mat = matCache.get(hex);
+    const getMat = (roughness = 0.55): THREE.MeshStandardMaterial => {
+      let mat = matCache.get(roughness);
       if (!mat) {
-        mat = new THREE.MeshStandardMaterial({ color: hex, roughness });
-        matCache.set(hex, mat);
+        mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness });
+        mat.onBeforeCompile = (shader) => {
+          shader.uniforms.uTime = { value: 0 };
+          this.animatedMaterials.push(shader.uniforms);
+
+          shader.vertexShader = shader.vertexShader.replace(
+            '#include <common>',
+            `#include <common>
+            uniform float uTime;
+            attribute float aPhase;`
+          );
+
+          // We replace project_vertex to apply the bobbing straight up/down in mesh/world space,
+          // which avoids body parts detaching or shearing under rotation.
+          shader.vertexShader = shader.vertexShader.replace(
+            '#include <project_vertex>',
+            `
+            vec4 mvPosition = vec4( transformed, 1.0 );
+            #ifdef USE_INSTANCING
+              mvPosition = instanceMatrix * mvPosition;
+            #endif
+            
+            float phase = aPhase * 0.65;
+            float bob = sin(uTime * 5.0 + phase) * 0.08;
+            float scaleFactor = sin(aPhase * 1.33) * 0.4 + 0.6;
+            mvPosition.y += bob * scaleFactor;
+            
+            mvPosition = modelViewMatrix * mvPosition;
+            gl_Position = projectionMatrix * mvPosition;
+            `
+          );
+        };
+        matCache.set(roughness, mat);
       }
       return mat;
     };
 
-    for (const [key, bucket] of buckets) {
-      const count = bucket.matrices.length;
+    const tempColor = new THREE.Color();
+
+    for (const [part, bucket] of buckets) {
+      const count = bucket.instances.length;
       if (count === 0) continue;
 
-      const part = key.split('|')[0] as BodyPart;
       let roughness = 0.55;
       if (part === 'legL' || part === 'legR') roughness = 0.8;
       if (part === 'torso' || part.startsWith('upper') || part.startsWith('forearm')) roughness = 0.5;
 
-      const material = getMat(bucket.colorHex, roughness);
-      const instMesh = new THREE.InstancedMesh(bucket.geometry, material, count);
+      const material = getMat(roughness);
+      const geometry = bucket.geometry.clone();
+      const instMesh = new THREE.InstancedMesh(geometry, material, count);
       instMesh.castShadow = false;
       instMesh.receiveShadow = false;
 
+      const attribute = new THREE.InstancedBufferAttribute(new Float32Array(count), 1);
       for (let i = 0; i < count; i++) {
-        instMesh.setMatrixAt(i, bucket.matrices[i]);
+        instMesh.setMatrixAt(i, bucket.instances[i].matrix);
+        attribute.setX(i, bucket.instances[i].phase);
+        tempColor.setHex(bucket.instances[i].colorHex);
+        instMesh.setColorAt(i, tempColor);
       }
+      instMesh.geometry.setAttribute('aPhase', attribute);
       instMesh.instanceMatrix.needsUpdate = true;
+      if (instMesh.instanceColor) {
+        instMesh.instanceColor.needsUpdate = true;
+      }
 
       this.instancedMeshes.push(instMesh);
       this.add(instMesh);
@@ -297,5 +339,13 @@ export class InstancedCrowd extends THREE.Group {
 
     // Clear the spectator data to free memory
     this.spectators.length = 0;
+  }
+
+  public update(time: number) {
+    for (const uniforms of this.animatedMaterials) {
+      if (uniforms.uTime) {
+        uniforms.uTime.value = time;
+      }
+    }
   }
 }

@@ -42,6 +42,7 @@ export class StreetLight {
   public readonly group: THREE.Group;
   private readonly config: Required<StreetLightConfig>;
   private pointLight?: THREE.PointLight;
+  private glassMaterial!: THREE.MeshStandardMaterial;
 
   constructor(position: THREE.Vector3, material: THREE.Material, config: StreetLightConfig = {}) {
     this.group = new THREE.Group();
@@ -68,6 +69,7 @@ export class StreetLight {
           emissive: this.config.lightColor,
           emissiveIntensity: 1.8,
         });
+    this.glassMaterial = glassMaterial;
 
     const shouldCastShadow = this.config.castShadow;
 
@@ -187,6 +189,15 @@ export class StreetLight {
       this.pointLight.position.set(0, 4.8, 0);
       this.pointLight.castShadow = false; // Disable shadows for performance, emissive handles look
       this.group.add(this.pointLight);
+    }
+  }
+
+  public setLightEnabled(enabled: boolean) {
+    if (this.pointLight) {
+      this.pointLight.visible = enabled;
+    }
+    if (this.glassMaterial) {
+      this.glassMaterial.emissiveIntensity = enabled ? 1.8 : 0.0;
     }
   }
 }

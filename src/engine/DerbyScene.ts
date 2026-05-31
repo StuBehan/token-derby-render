@@ -74,6 +74,8 @@ export class DerbyScene {
   public onTimeUpdate?: (time: number) => void;
   public onHorseSelected?: (horse: Horse | null) => void;
   public onHorsePositionUpdate?: (pos: { x: number; y: number; isBehind: boolean } | null) => void;
+  public onCameraLockUpdate?: (locked: boolean) => void;
+  private lastSentCameraLock = false;
   private pointerDownX = 0;
   private pointerDownY = 0;
   private hoveredHorse: Horse | null = null;
@@ -106,6 +108,7 @@ export class DerbyScene {
   private readonly activeDustSet = new Set<number>();
   private readonly dustDummy = new THREE.Object3D();
   private readonly dustSideDir = new THREE.Vector3();
+  private readonly streetLights: StreetLight[] = [];
   private particleIndex = 0;
   private readonly cameraTarget = new THREE.Vector3(0, 5, 0);
   private readonly cameraBaseDirection = new THREE.Vector3();
@@ -140,6 +143,13 @@ export class DerbyScene {
   private readonly transEndPos = new THREE.Vector3();
   private readonly transEndLook = new THREE.Vector3();
   private transTimer = 0;
+  private liveRaceStartTime = 0;
+  private liveRaceEndTime = 0;
+  private readonly sortedHorses: Horse[] = [];
+  private readonly scratchVec1 = new THREE.Vector3();
+  private readonly scratchVec2 = new THREE.Vector3();
+  private readonly scratchVec3 = new THREE.Vector3();
+  private readonly scratchVec4 = new THREE.Vector3();
   public selectedHorseCameraMode: 'free' | 'follow' | 'jockey' = 'free';
   private readonly resizeObserver: ResizeObserver;
 
@@ -295,6 +305,8 @@ export class DerbyScene {
     this.prevStatus = race.status;
 
     this.liveRace = race;
+    this.liveRaceStartTime = Date.parse(race.start_time);
+    this.liveRaceEndTime = Date.parse(race.end_time);
     this.serverTimeOffset = Date.parse(race.server_time) - Date.now();
     this.syncHorses(race.horses);
 
@@ -887,6 +899,7 @@ export class DerbyScene {
     ] as const) {
       const streetLight = new StreetLight(new THREE.Vector3(...lamp), ironMaterial);
       this.scene.add(streetLight.group);
+      this.streetLights.push(streetLight);
     }
 
     for (const bench of [
@@ -963,6 +976,7 @@ export class DerbyScene {
           castShadow: false,
         });
         this.scene.add(streetLight.group);
+        this.streetLights.push(streetLight);
       }
     }
 
@@ -973,6 +987,7 @@ export class DerbyScene {
           castShadow: false,
         });
         this.scene.add(streetLight.group);
+        this.streetLights.push(streetLight);
       }
     }
 
@@ -984,6 +999,7 @@ export class DerbyScene {
         });
         streetLight.group.rotation.y = Math.PI / 2; // Span parallel to street
         this.scene.add(streetLight.group);
+        this.streetLights.push(streetLight);
       }
     }
 
@@ -995,6 +1011,7 @@ export class DerbyScene {
         });
         streetLight.group.rotation.y = Math.PI / 2; // Span parallel to street
         this.scene.add(streetLight.group);
+        this.streetLights.push(streetLight);
       }
     }
   }
@@ -1449,6 +1466,12 @@ export class DerbyScene {
   private tick = () => {
     const delta = Math.min(this.clock.getDelta(), 0.033);
 
+    const currentLock = this.isCameraLocked;
+    if (currentLock !== this.lastSentCameraLock) {
+      this.lastSentCameraLock = currentLock;
+      this.onCameraLockUpdate?.(currentLock);
+    }
+
     if (this.running) {
       this.updateHorses(delta);
       this.updateParticles(delta);
@@ -1470,6 +1493,7 @@ export class DerbyScene {
     const isNightOrSunset = this.timeOfDay >= 17.0 || this.timeOfDay < 7.5;
     const lightsOn = this.activeWeatherType === 'rainy' || this.activeWeatherType === 'storm' || isNightOrSunset;
     this.floodlights?.setLightsEnabled(lightsOn);
+    this.streetLights.forEach((light) => light.setLightEnabled(lightsOn));
 
     // Update active achievement sprite effects
     for (let i = this.activeEffects.length - 1; i >= 0; i--) {
@@ -1497,7 +1521,12 @@ export class DerbyScene {
     }
 
     if (this.grandstand) {
-      const sortedHorses = [...this.horses].sort((a, b) => b.cumulativeProgress - a.cumulativeProgress);
+      this.sortedHorses.length = 0;
+      for (let i = 0; i < this.horses.length; i++) {
+        this.sortedHorses.push(this.horses[i]);
+      }
+      this.sortedHorses.sort((a, b) => b.cumulativeProgress - a.cumulativeProgress);
+      const sortedHorses = this.sortedHorses;
       const leaderName = sortedHorses[0] ? this.getHorseName(sortedHorses[0].index) : 'NONE';
       const runnerUpName = sortedHorses[1] ? this.getHorseName(sortedHorses[1].index) : 'NONE';
       
@@ -1522,7 +1551,7 @@ export class DerbyScene {
     }
 
     if (this.selectedHorse) {
-      const pos = new THREE.Vector3();
+      const pos = this.scratchVec1;
       this.selectedHorse.group.getWorldPosition(pos);
       pos.y += 3.4; // offset vertically to float above the horse
       pos.project(this.camera);
@@ -1614,8 +1643,8 @@ export class DerbyScene {
 
   private updateHorses(delta: number) {
     if (this.liveRace) {
-      const startTime = Date.parse(this.liveRace.start_time);
-      const endTime = Date.parse(this.liveRace.end_time);
+      const startTime = this.liveRaceStartTime;
+      const endTime = this.liveRaceEndTime;
       const now = Date.now() + this.serverTimeOffset;
       const durationMs = endTime - startTime;
       const elapsedMs = now - startTime;
@@ -1967,7 +1996,8 @@ export class DerbyScene {
         const height = 3.2;
         this.transEndPos.copy(horsePos).addScaledVector(tangent, -distance);
         this.transEndPos.y += height;
-        this.transEndLook.copy(horsePos).add(new THREE.Vector3(0, 1.3, 0));
+        this.transEndLook.copy(horsePos);
+        this.transEndLook.y += 1.3;
       } else if (this.selectedHorse && this.selectedHorseCameraMode === 'jockey') {
         const horse = this.selectedHorse;
         const tangent = this.trackCurve.getTangentAt(horse.progress).normalize();
@@ -1980,8 +2010,8 @@ export class DerbyScene {
         this.transEndLook.y -= 0.55;
       }
 
-      const currentPos = new THREE.Vector3().lerpVectors(this.transStartPos, this.transEndPos, smoothT);
-      const currentLook = new THREE.Vector3().lerpVectors(this.transStartLook, this.transEndLook, smoothT);
+      const currentPos = this.scratchVec1.lerpVectors(this.transStartPos, this.transEndPos, smoothT);
+      const currentLook = this.scratchVec2.lerpVectors(this.transStartLook, this.transEndLook, smoothT);
 
       this.camera.position.copy(currentPos);
       this.camera.lookAt(currentLook);
@@ -1997,7 +2027,7 @@ export class DerbyScene {
       this.cameraTimer += delta;
       const hover = Math.sin(this.cameraTimer * 0.7) * 0.3;
       this.camera.position.set(-15.0, 4.0 + hover, -10.0); // Shifted further back/right to clear Lane 1 from left UI
-      this.camera.lookAt(new THREE.Vector3(-31.0, 1.8, -24.0));
+      this.camera.lookAt(this.scratchVec1.set(-31.0, 1.8, -24.0));
       return;
     }
 
@@ -2037,15 +2067,13 @@ export class DerbyScene {
         const p = (this.cameraTimer - 4.0) / 3.5;
         const t = p * p * (3 - 2 * p); // smoothstep interpolation
         
-        const startPos = new THREE.Vector3(15.0, 7.5, -34.0);
-        const endPos = new THREE.Vector3(-15.0, 4.0, -10.0); // Sweep to the adjusted camera position
-        const lookStart = new THREE.Vector3(-8.0, 6.0, -48.5);
-        const lookEnd = new THREE.Vector3(-31.0, 1.8, -24.0);
+        const startPos = this.scratchVec1.set(15.0, 7.5, -34.0);
+        const endPos = this.scratchVec2.set(-15.0, 4.0, -10.0);
+        const lookStart = this.scratchVec3.set(-8.0, 6.0, -48.5);
+        const lookEnd = this.scratchVec4.set(-31.0, 1.8, -24.0);
         
-        const currentPos = new THREE.Vector3().lerpVectors(startPos, endPos, t);
-        const currentLook = new THREE.Vector3().lerpVectors(lookStart, lookEnd, t);
-        
-        this.camera.position.copy(currentPos);
+        this.camera.position.lerpVectors(startPos, endPos, t);
+        const currentLook = this.scratchVec3.lerpVectors(lookStart, lookEnd, t);
         this.camera.lookAt(currentLook);
       } else {
         this.setCameraMode('start_hold');
@@ -2062,7 +2090,7 @@ export class DerbyScene {
         const driftX = Math.sin(this.cameraTimer * 0.25) * 1.2;
         const driftY = Math.cos(this.cameraTimer * 0.25) * 0.4;
         this.camera.position.set(-44.0 + driftX, 4.2 + driftY, -14.0);
-        this.camera.lookAt(new THREE.Vector3(-31.0, 1.8, -24.0));
+        this.camera.lookAt(this.scratchVec1.set(-31.0, 1.8, -24.0));
         return;
       }
     }
@@ -2074,12 +2102,13 @@ export class DerbyScene {
       const horsePos = horse.group.position;
       const distance = 8.5;
       const height = 3.2;
-      const targetPos = new THREE.Vector3().copy(horsePos).addScaledVector(tangent, -distance);
+      const targetPos = this.scratchVec1.copy(horsePos).addScaledVector(tangent, -distance);
       targetPos.y += height;
 
       // Smoothly lerp camera to prevent jitter
       this.camera.position.lerp(targetPos, delta * 12.0);
-      const lookTarget = new THREE.Vector3().copy(horsePos).add(new THREE.Vector3(0, 1.3, 0));
+      const lookTarget = this.scratchVec2.copy(horsePos);
+      lookTarget.y += 1.3;
       this.camera.lookAt(lookTarget);
       return;
     }
@@ -2090,11 +2119,11 @@ export class DerbyScene {
       const horsePos = horse.group.position;
       const forwardOffset = 0.3;
       const headHeight = 3.25;
-      const targetPos = new THREE.Vector3().copy(horsePos).addScaledVector(tangent, forwardOffset);
+      const targetPos = this.scratchVec1.copy(horsePos).addScaledVector(tangent, forwardOffset);
       targetPos.y += headHeight;
 
       this.camera.position.copy(targetPos);
-      const lookTarget = new THREE.Vector3().copy(targetPos).addScaledVector(tangent, 15.0);
+      const lookTarget = this.scratchVec2.copy(targetPos).addScaledVector(tangent, 15.0);
       lookTarget.y -= 0.55;
       this.camera.lookAt(lookTarget);
       return;
@@ -2538,5 +2567,9 @@ export class DerbyScene {
     if (this.sunLight) {
       this.sunLight.castShadow = false;
     }
+  }
+
+  public get isCameraLocked(): boolean {
+    return this.cameraMode === 'transitioning' || this.cameraMode === 'start_pan' || this.cameraMode === 'finish_view';
   }
 }
