@@ -72,18 +72,28 @@ export class RaceSyncController {
   }
 
   updateHorseProgress(horses: Horse[], delta: number) {
-    if (!this.race) return;
+    const race = this.race;
+    if (!race) return;
 
     const elapsed = this.getElapsedRaceRatio();
-    const leaderTokens = this.getLeaderTokens(this.race.horses);
+    const leaderTokens = this.getLeaderTokens(race.horses);
 
     horses.forEach((horse, index) => {
-      const apiHorse = this.race?.horses[index];
+      const apiHorse = race.horses[index];
       if (!apiHorse) return;
 
-      let targetProgress = this.getInitialProgress(apiHorse, leaderTokens, elapsed);
+      const lastHeartbeatMs = Date.parse(apiHorse.last_heartbeat);
+      const serverTimeMs = Date.parse(race.server_time);
+      const isInactive = race.status !== 'finished' && (serverTimeMs - lastHeartbeatMs) > 75000;
 
-      if (this.race?.status === 'live') {
+      // Update horse's eating grass state
+      horse.isEatingGrass = isInactive;
+
+      let targetProgress = isInactive
+        ? horse.cumulativeProgress
+        : this.getInitialProgress(apiHorse, leaderTokens, elapsed);
+
+      if (race.status === 'live' && !isInactive) {
         targetProgress = Math.max(horse.cumulativeProgress, targetProgress);
       }
 
@@ -97,7 +107,7 @@ export class RaceSyncController {
       }
 
       const maxSpeed = 0.06;
-      const baseSpeed = this.race?.status === 'live' && horse.cumulativeProgress < TOTAL_LAPS
+      const baseSpeed = race.status === 'live' && horse.cumulativeProgress < TOTAL_LAPS && !isInactive
         ? 0.0035
         : 0;
       const desiredSpeed = Math.max(baseSpeed, Math.min(maxSpeed, diff / 1.2));

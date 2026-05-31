@@ -13,6 +13,8 @@ const DEFAULT_HORSE_NAMES = [
 
 export class GrandstandScoreboardText {
   private readonly sortedHorses: Horse[] = [];
+  private favoriteHorseId: string | null = null;
+  private previousHorseIds: string[] = [];
 
   build(
     horses: Horse[],
@@ -32,8 +34,29 @@ export class GrandstandScoreboardText {
     const runnerUpName = runnerUp ? this.getHorseName(runnerUp.index) : 'NONE';
 
     if (liveRace) {
-      const statusStr = liveRace.status.toUpperCase();
-      return `  • RACE: ${liveRace.name.toUpperCase()}  • JOIN CODE: ${liveRace.join_code}  • STATUS: ${statusStr}  • LEADER: ${leaderName.toUpperCase()}  • 2ND: ${runnerUpName.toUpperCase()}  `;
+      if (liveRace.status === 'pending') {
+        const currentHorseIds = liveRace.horses.map(h => h.horse_id);
+        const hasNewJoin = currentHorseIds.some(id => !this.previousHorseIds.includes(id));
+        const isFavoriteValid = this.favoriteHorseId && currentHorseIds.includes(this.favoriteHorseId);
+
+        if (liveRace.horses.length > 0 && (hasNewJoin || !isFavoriteValid)) {
+          const randomIndex = Math.floor(Math.random() * liveRace.horses.length);
+          this.favoriteHorseId = liveRace.horses[randomIndex].horse_id;
+        }
+
+        this.previousHorseIds = currentHorseIds;
+
+        const favoriteHorse = liveRace.horses.find(h => h.horse_id === this.favoriteHorseId);
+        const favStr = favoriteHorse ? favoriteHorse.name.toUpperCase() : 'NONE';
+
+        return `  • RACE: ${liveRace.name.toUpperCase()}  • JOIN CODE: ${liveRace.join_code}  • STATUS: AWAITING START  • FAVOURITE: ${favStr}  `;
+      } else {
+        this.favoriteHorseId = null;
+        this.previousHorseIds = [];
+
+        const statusStr = liveRace.status.toUpperCase();
+        return `  • RACE: ${liveRace.name.toUpperCase()}  • JOIN CODE: ${liveRace.join_code}  • STATUS: ${statusStr}  • LEADER: ${leaderName.toUpperCase()}  • 2ND: ${runnerUpName.toUpperCase()}  `;
+      }
     }
 
     const hours = Math.floor(timeOfDay);

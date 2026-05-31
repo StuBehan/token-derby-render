@@ -30,6 +30,7 @@ export interface HorseView {
   live_xp?: number;
   rank: number;
   recent_events?: RecentEvent[];
+  last_heartbeat: string;
 }
 
 export interface RaceView {
@@ -206,8 +207,9 @@ export class RaceClient {
           // Green Gale: wave patterns / erratic
           tokens = 80 + Math.floor(t * 38 + Math.sin(t * 0.18) * 220);
         } else if (index === 4) {
-          // Purple Pegasus: slow and steady
-          tokens = 60 + Math.floor(t * 35);
+          // Purple Pegasus: slow and steady, but leaves after 40s
+          const mockT = Math.min(t, 40);
+          tokens = 60 + Math.floor(mockT * 35);
         } else {
           // Orange Outlaw: massive comeback from behind
           tokens = 30 + Math.floor(t * 22 + Math.max(0, t - 80) * 135);
@@ -231,6 +233,11 @@ export class RaceClient {
         }
       }
 
+      let mockLastHeartbeat = new Date(now).toISOString();
+      if (index === 4 && now > startTime + 40000) {
+        mockLastHeartbeat = new Date(startTime + 40000).toISOString();
+      }
+
       return {
         horse_id: `mock-horse-${index}`,
         name,
@@ -240,7 +247,8 @@ export class RaceClient {
         xp: 1500 + index * 100,
         live_xp,
         rank: index + 1,
-        recent_events
+        recent_events,
+        last_heartbeat: mockLastHeartbeat
       };
     });
 

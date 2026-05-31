@@ -48,6 +48,16 @@ export class Horse {
   private rightReinPositionAttribute!: THREE.BufferAttribute;
   public pendingStrikes: { position: THREE.Vector3; backwardDir: THREE.Vector3 }[] = [];
 
+  public isEatingGrass = false;
+  private headNeckGroup!: THREE.Group;
+  private leftBitHook!: THREE.Object3D;
+  private rightBitHook!: THREE.Object3D;
+  private readonly leftBitWorld = new THREE.Vector3();
+  private readonly rightBitWorld = new THREE.Vector3();
+  private readonly leftBitLocal = new THREE.Vector3();
+  private readonly rightBitLocal = new THREE.Vector3();
+  private currentNeckRotation = 0;
+
   public progress: number;
   public cumulativeProgress: number;
   public phase: number;
@@ -114,54 +124,68 @@ export class Horse {
     hips.castShadow = true;
     this.group.add(hips);
 
+    // Head and neck rotation group
+    this.headNeckGroup = new THREE.Group();
+    this.headNeckGroup.position.set(1.2, 1.6, 0);
+    this.group.add(this.headNeckGroup);
+
     const neck = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.35, 0.44), bodyMaterial);
-    neck.position.set(1.55, 2.15, 0);
+    neck.position.set(0.35, 0.55, 0);
     neck.rotation.z = -0.45;
     neck.castShadow = true;
-    this.group.add(neck);
+    this.headNeckGroup.add(neck);
 
     // Detailed Head & Muzzle
     const head = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.6, 0.4), bodyMaterial);
-    head.position.set(2.0, 2.45, 0);
+    head.position.set(0.8, 0.85, 0);
     head.castShadow = true;
-    this.group.add(head);
+    this.headNeckGroup.add(head);
 
     const snout = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.42, 0.32), bodyMaterial);
-    snout.position.set(2.5, 2.3, 0);
+    snout.position.set(1.3, 0.7, 0);
     snout.castShadow = true;
-    this.group.add(snout);
+    this.headNeckGroup.add(snout);
 
     const noseTip = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.14, 0.18), darkMaterial);
-    noseTip.position.set(2.78, 2.25, 0);
+    noseTip.position.set(1.58, 0.65, 0);
     noseTip.castShadow = true;
-    this.group.add(noseTip);
+    this.headNeckGroup.add(noseTip);
 
     // Ears
     for (const side of [-1, 1]) {
       const ear = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.32, 0.14), bodyMaterial);
-      ear.position.set(1.9, 2.8, side * 0.12);
+      ear.position.set(0.7, 1.2, side * 0.12);
       ear.rotation.z = -0.15;
       ear.castShadow = true;
-      this.group.add(ear);
+      this.headNeckGroup.add(ear);
     }
 
     // Eyes
     for (const side of [-1, 1]) {
       const eye = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 0.09), darkMaterial);
-      eye.position.set(2.1, 2.5, side * 0.21);
-      this.group.add(eye);
+      eye.position.set(0.9, 0.9, side * 0.21);
+      this.headNeckGroup.add(eye);
     }
 
     // Mane
     const mane1 = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.5, 0.18), this.maneMaterial);
-    mane1.position.set(1.65, 2.65, 0);
+    mane1.position.set(0.45, 1.05, 0);
     mane1.castShadow = true;
-    this.group.add(mane1);
+    this.headNeckGroup.add(mane1);
 
     const mane2 = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.25, 0.14), this.maneMaterial);
-    mane2.position.set(1.25, 2.15, 0);
+    mane2.position.set(0.05, 0.55, 0);
     mane2.castShadow = true;
-    this.group.add(mane2);
+    this.headNeckGroup.add(mane2);
+
+    // Reins attach hooks
+    this.leftBitHook = new THREE.Object3D();
+    this.leftBitHook.position.set(1.3, 0.7, 0.12);
+    this.headNeckGroup.add(this.leftBitHook);
+
+    this.rightBitHook = new THREE.Object3D();
+    this.rightBitHook.position.set(1.3, 0.7, -0.12);
+    this.headNeckGroup.add(this.rightBitHook);
 
     // Multi-part Tail (Rotated to point backward and down to flow with the horse's motion)
     const upperTail = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.75, 0.12), this.tailMaterial);
@@ -370,20 +394,37 @@ export class Horse {
       this.prevSwings[i] = swing;
     }
 
+    // Smooth neck rotation transition for eating grass
+    const targetNeckRot = this.isEatingGrass ? -0.8 : 0;
+    const neckSpeed = 1.5; // rad/sec
+    const rotDiff = targetNeckRot - this.currentNeckRotation;
+    if (Math.abs(rotDiff) > 0.001) {
+      this.currentNeckRotation += Math.sign(rotDiff) * Math.min(Math.abs(rotDiff), neckSpeed * delta);
+    } else {
+      this.currentNeckRotation = targetNeckRot;
+    }
+    this.headNeckGroup.rotation.z = this.currentNeckRotation;
+
     // Scale oscillations by speedFactor, and default to resting posture when stopped
-    const targetLean = -0.15 + (-0.13 + Math.sin(phaseAngle) * 0.08) * speedFactor;
-    const targetHeadTilt = (0.15 - Math.sin(phaseAngle) * 0.04) * speedFactor;
+    const targetLean = this.isEatingGrass
+      ? -0.55 // Lean way forward when eating grass
+      : -0.15 + (-0.13 + Math.sin(phaseAngle) * 0.08) * speedFactor;
+    const targetHeadTilt = this.isEatingGrass
+      ? -0.35 // Look down at the grass
+      : (0.15 - Math.sin(phaseAngle) * 0.04) * speedFactor;
 
     this.jockey.pose(
       targetLean,
       targetHeadTilt,
-      -0.1,
-      -0.1,
-      1.3,
-      1.3
+      this.isEatingGrass ? -0.4 : -0.1,
+      this.isEatingGrass ? -0.4 : -0.1,
+      this.isEatingGrass ? 0.9 : 1.3,
+      this.isEatingGrass ? 0.9 : 1.3
     );
 
     // Update reins positions dynamically to connect horse snout to jockey's hands
+    this.leftBitHook.getWorldPosition(this.leftBitWorld);
+    this.rightBitHook.getWorldPosition(this.rightBitWorld);
     this.jockey.leftHand.getWorldPosition(this.leftHandWorld);
     this.jockey.rightHand.getWorldPosition(this.rightHandWorld);
 
@@ -392,15 +433,26 @@ export class Horse {
     this.group.worldToLocal(this.leftHandLocal);
     this.group.worldToLocal(this.rightHandLocal);
 
-    // snout/mouth bit attachment point is around x=2.5, y=2.3, z=±0.12
+    this.leftBitLocal.copy(this.leftBitWorld);
+    this.rightBitLocal.copy(this.rightBitWorld);
+    this.group.worldToLocal(this.leftBitLocal);
+    this.group.worldToLocal(this.rightBitLocal);
+
+    this.leftReinPositions[0] = this.leftBitLocal.x;
+    this.leftReinPositions[1] = this.leftBitLocal.y;
+    this.leftReinPositions[2] = this.leftBitLocal.z;
     this.leftReinPositions[3] = this.leftHandLocal.x;
     this.leftReinPositions[4] = this.leftHandLocal.y;
     this.leftReinPositions[5] = this.leftHandLocal.z;
     this.leftReinPositionAttribute.needsUpdate = true;
 
+    this.rightReinPositions[0] = this.rightBitLocal.x;
+    this.rightReinPositions[1] = this.rightBitLocal.y;
+    this.rightReinPositions[2] = this.rightBitLocal.z;
     this.rightReinPositions[3] = this.rightHandLocal.x;
     this.rightReinPositions[4] = this.rightHandLocal.y;
     this.rightReinPositions[5] = this.rightHandLocal.z;
+    this.rightReinPositionAttribute.needsUpdate = true;
   }
 
   public updatePreview(delta: number, speed: number = 0.02) {
@@ -436,6 +488,8 @@ export class Horse {
     );
     
     // Update reins positions dynamically to connect horse snout to jockey's hands
+    this.leftBitHook.getWorldPosition(this.leftBitWorld);
+    this.rightBitHook.getWorldPosition(this.rightBitWorld);
     this.jockey.leftHand.getWorldPosition(this.leftHandWorld);
     this.jockey.rightHand.getWorldPosition(this.rightHandWorld);
     
@@ -444,11 +498,22 @@ export class Horse {
     this.group.worldToLocal(this.leftHandLocal);
     this.group.worldToLocal(this.rightHandLocal);
     
+    this.leftBitLocal.copy(this.leftBitWorld);
+    this.rightBitLocal.copy(this.rightBitWorld);
+    this.group.worldToLocal(this.leftBitLocal);
+    this.group.worldToLocal(this.rightBitLocal);
+    
+    this.leftReinPositions[0] = this.leftBitLocal.x;
+    this.leftReinPositions[1] = this.leftBitLocal.y;
+    this.leftReinPositions[2] = this.leftBitLocal.z;
     this.leftReinPositions[3] = this.leftHandLocal.x;
     this.leftReinPositions[4] = this.leftHandLocal.y;
     this.leftReinPositions[5] = this.leftHandLocal.z;
     this.leftReinPositionAttribute.needsUpdate = true;
     
+    this.rightReinPositions[0] = this.rightBitLocal.x;
+    this.rightReinPositions[1] = this.rightBitLocal.y;
+    this.rightReinPositions[2] = this.rightBitLocal.z;
     this.rightReinPositions[3] = this.rightHandLocal.x;
     this.rightReinPositions[4] = this.rightHandLocal.y;
     this.rightReinPositions[5] = this.rightHandLocal.z;

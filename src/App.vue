@@ -20,6 +20,14 @@ const isCameraLocked = ref(false);
 // Live Race state
 const joinCodeInput = ref('');
 const joinedRace = ref<RaceView | null>(null);
+
+function isHorseInactive(horse: any): boolean {
+  if (!joinedRace.value || joinedRace.value.status === 'finished') return false;
+  const lastHeartbeatMs = Date.parse(horse.last_heartbeat);
+  const serverTimeMs = Date.parse(joinedRace.value.server_time);
+  return (serverTimeMs - lastHeartbeatMs) > 75000;
+}
+
 const isPolling = ref(false);
 const errorMessage = ref('');
 const raceClient = new RaceClient();
@@ -678,6 +686,7 @@ function formatTimeLeft(seconds: number) {
           <div class="header-main">
             <span class="horse-name">{{ selectedHorse.name }}</span>
             <span class="lane-badge">Lane {{ selectedHorse.index + 1 }}</span>
+            <span v-if="selectedHorse.isEatingGrass" class="inactive-badge" title="Inactive - Eating Grass">🌾 Inactive</span>
           </div>
           <button type="button" class="close-tag-btn" @click="deselectHorse" aria-label="Deselect horse">×</button>
         </div>
@@ -724,7 +733,7 @@ function formatTimeLeft(seconds: number) {
         <div class="panel-header">
           <div class="live-indicator-wrapper">
             <span :class="['status-dot', joinedRace.status]"></span>
-            <span class="status-text">{{ joinedRace.status.toUpperCase() }}</span>
+            <span class="status-text">{{ joinedRace.status === 'pending' ? 'AWAITING START' : joinedRace.status.toUpperCase() }}</span>
           </div>
           <h2>{{ joinedRace.name }}</h2>
           <p class="join-code-badge font-mono">CODE: {{ joinedRace.join_code }}</p>
@@ -764,14 +773,17 @@ function formatTimeLeft(seconds: number) {
                 <tr 
                   v-for="horse in sortedLiveHorses" 
                   :key="horse.horse_id"
-                  :class="{ 'is-leader': horse.rank === 1 }"
+                  :class="{ 'is-leader': horse.rank === 1, 'is-inactive-row': isHorseInactive(horse) }"
                 >
                   <td class="col-rank font-mono">{{ horse.rank }}</td>
                   <td class="col-name">
                     <span class="color-dot" :style="{ backgroundColor: horse.colors.saddle }"></span>
                     <div class="horse-names-wrapper">
                       <span class="horse-display-name">{{ horse.name }}</span>
-                      <span class="user-display-name">by {{ horse.user_name }}</span>
+                      <span class="user-display-name">
+                        by {{ horse.user_name }}
+                        <span v-if="isHorseInactive(horse)" class="inactive-badge" title="Inactive - Eating Grass">🌾 Inactive</span>
+                      </span>
                     </div>
                   </td>
                   <td class="col-tokens font-mono">{{ horse.current_tokens.toLocaleString() }}</td>

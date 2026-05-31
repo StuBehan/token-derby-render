@@ -582,6 +582,24 @@ select:hover {
   line-height: 1;
 }
 
+.leaderboard-table tr.is-inactive-row td {
+  opacity: 0.55;
+  transition: opacity 0.5s ease;
+}
+
+.inactive-badge {
+  font-size: 0.65rem;
+  color: #a8e6cf;
+  background: rgba(168, 230, 207, 0.15);
+  border: 1px solid rgba(168, 230, 207, 0.3);
+  border-radius: 4px;
+  padding: 0px 4px;
+  margin-left: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
 td.col-tokens {
   text-align: right;
 }
