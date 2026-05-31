@@ -130,6 +130,15 @@ export class DerbyScene {
   private liveRace: RaceView | null = null;
   private serverTimeOffset = 0;
   private totalLaps = 5;
+  private cameraMode: 'free' | 'start_pan' | 'finish_view' | 'start_hold' | 'start_follow' | 'transitioning' = 'start_hold';
+  private cameraTimer = 0;
+  private prevStatus = '';
+  private readonly transStartPos = new THREE.Vector3();
+  private readonly transStartLook = new THREE.Vector3();
+  private readonly transEndPos = new THREE.Vector3();
+  private readonly transEndLook = new THREE.Vector3();
+  private transTimer = 0;
+  public selectedHorseCameraMode: 'free' | 'follow' | 'jockey' = 'free';
   private readonly resizeObserver: ResizeObserver;
 
   constructor(host: HTMLElement) {
@@ -191,8 +200,81 @@ export class DerbyScene {
     this.weatherManager?.update(0, this.timeOfDay);
   }
 
+  public setCameraMode(mode: 'free' | 'start_pan' | 'finish_view' | 'start_hold' | 'start_follow') {
+    if (mode === 'free') {
+      this.triggerTransitionToFree();
+    } else {
+      this.cameraMode = mode;
+      this.cameraTimer = 0.0;
+    }
+  }
+
+  public setHorseCameraMode(mode: 'free' | 'follow' | 'jockey') {
+    if (this.selectedHorseCameraMode === mode) return;
+    this.selectedHorseCameraMode = mode;
+    this.triggerTransitionToFree();
+  }
+
+  public triggerTransitionToFree() {
+    this.transStartPos.copy(this.camera.position);
+
+    // Get current camera look direction to calculate start look target
+    const dir = new THREE.Vector3();
+    this.camera.getWorldDirection(dir);
+    this.transStartLook.copy(this.camera.position).addScaledVector(dir, 15.0);
+
+    // Compute target end position and look target based on selection camera mode
+    if (this.selectedHorse && this.selectedHorseCameraMode === 'follow') {
+      const horse = this.selectedHorse;
+      const tangent = this.trackCurve.getTangentAt(horse.progress).normalize();
+      const horsePos = horse.group.position;
+      const distance = 8.5;
+      const height = 3.2;
+      this.transEndPos.copy(horsePos).addScaledVector(tangent, -distance);
+      this.transEndPos.y += height;
+      this.transEndLook.copy(horsePos).add(new THREE.Vector3(0, 1.3, 0));
+    } else if (this.selectedHorse && this.selectedHorseCameraMode === 'jockey') {
+      const horse = this.selectedHorse;
+      const tangent = this.trackCurve.getTangentAt(horse.progress).normalize();
+      const horsePos = horse.group.position;
+      const forwardOffset = 0.3;
+      const headHeight = 3.25;
+      this.transEndPos.copy(horsePos).addScaledVector(tangent, forwardOffset);
+      this.transEndPos.y += headHeight;
+      this.transEndLook.copy(this.transEndPos).addScaledVector(tangent, 15.0);
+      this.transEndLook.y -= 0.55;
+    } else {
+      // Target end position in free mode
+      const radius = 67;
+      this.transEndPos.set(
+        Math.cos(this.cameraRailAngle) * radius,
+        this.cameraHeight,
+        Math.sin(this.cameraRailAngle) * radius
+      );
+
+      // Target end look target in free mode based on free look direction
+      const cameraBaseDir = new THREE.Vector3().subVectors(this.cameraTarget, this.transEndPos).normalize();
+      const baseYaw = Math.atan2(cameraBaseDir.x, cameraBaseDir.z);
+      const basePitch = Math.asin(cameraBaseDir.y);
+      const yaw = baseYaw + this.freeLookYaw;
+      const pitch = THREE.MathUtils.clamp(basePitch + this.freeLookPitch, -0.82, 0.58);
+      const cameraLookDir = new THREE.Vector3(
+        Math.sin(yaw) * Math.cos(pitch),
+        Math.sin(pitch),
+        Math.cos(yaw) * Math.cos(pitch)
+      ).normalize();
+
+      this.transEndLook.copy(this.transEndPos).addScaledVector(cameraLookDir, 15.0);
+    }
+
+    this.cameraMode = 'transitioning';
+    this.transTimer = 0.0;
+  }
+
   reset() {
     this.running = true;
+    this.setCameraMode('start_hold');
+    this.selectedHorseCameraMode = 'free';
     if (this.liveRace) {
       // In live race, reset doesn't make sense to randomize simulated speeds,
       // but we can re-sync.
@@ -207,13 +289,33 @@ export class DerbyScene {
   }
 
   updateLiveRace(race: RaceView) {
+    const statusChanged = this.prevStatus !== race.status;
+    this.prevStatus = race.status;
+
     this.liveRace = race;
     this.serverTimeOffset = Date.parse(race.server_time) - Date.now();
     this.syncHorses(race.horses);
+
+    if (statusChanged) {
+      if (race.status === 'pending') {
+        this.setCameraMode('start_pan');
+      } else if (race.status === 'finished') {
+        this.setCameraMode('finish_view');
+      } else if (race.status === 'live') {
+        if (this.cameraMode === 'start_hold' || this.cameraMode === 'start_pan') {
+          this.setCameraMode('start_follow');
+        } else {
+          this.setCameraMode('free');
+        }
+      }
+    }
   }
 
   clearLiveRace() {
     this.liveRace = null;
+    this.prevStatus = '';
+    this.setCameraMode('start_hold');
+    this.selectedHorseCameraMode = 'free';
     this.clearHorses();
     this.addHorses();
   }
@@ -569,13 +671,15 @@ export class DerbyScene {
     const hillMaterial = createTexturedMaterial('hill', 0x637854, 8, 3, { roughness: 1 });
     const farHillMaterial = createTexturedMaterial('hill', 0x819071, 7, 3, { roughness: 1 });
 
-    for (const hill of [
+    const hills = [
       { x: -96, z: -108, width: 92, height: 15, depth: 10, color: farHillMaterial },
       { x: 8, z: -116, width: 128, height: 19, depth: 12, color: hillMaterial },
       { x: 106, z: -102, width: 78, height: 13, depth: 10, color: farHillMaterial },
       { x: -112, z: 94, width: 96, height: 12, depth: 9, color: farHillMaterial },
       { x: 80, z: 104, width: 118, height: 16, depth: 11, color: hillMaterial },
-    ]) {
+    ];
+
+    for (const hill of this.createPathAwareHills(hills)) {
       const mound = new THREE.Mesh(
         new THREE.SphereGeometry(1, 24, 10),
         hill.color,
@@ -1021,6 +1125,74 @@ export class DerbyScene {
     });
   }
 
+  private createPathAwareHills<T extends { x: number; z: number; width: number; height: number; depth: number }>(hills: T[]) {
+    const result: T[] = [];
+
+    for (const hill of hills) {
+      const blockingPath = PARK_PATHS.find((path) => this.doesFootprintOverlapPath(
+        hill.x,
+        hill.z,
+        hill.width,
+        hill.depth,
+        path,
+        3,
+      ));
+
+      if (!blockingPath) {
+        result.push(hill);
+        continue;
+      }
+
+      if (blockingPath.width > blockingPath.depth) {
+        const splitOffset = hill.depth * 0.72 + blockingPath.depth / 2;
+        const splitDepth = Math.max(3.5, hill.depth * 0.48);
+        const splitHeight = hill.height * 0.72;
+        result.push(
+          { ...hill, z: hill.z - splitOffset, depth: splitDepth, height: splitHeight },
+          { ...hill, z: hill.z + splitOffset, depth: splitDepth, height: splitHeight },
+        );
+        continue;
+      }
+
+      const splitOffset = hill.width * 0.56 + blockingPath.width / 2;
+      const splitWidth = Math.max(20, hill.width * 0.42);
+      const splitHeight = hill.height * 0.74;
+      result.push(
+        { ...hill, x: hill.x - splitOffset, width: splitWidth, height: splitHeight },
+        { ...hill, x: hill.x + splitOffset, width: splitWidth, height: splitHeight },
+      );
+    }
+
+    return result.filter((hill) => (
+      hill.width > 4 &&
+      hill.depth > 2 &&
+      !PARK_PATHS.some((path) => this.doesFootprintOverlapPath(hill.x, hill.z, hill.width, hill.depth, path, 1.5))
+    ));
+  }
+
+  private doesFootprintOverlapPath(
+    x: number,
+    z: number,
+    width: number,
+    depth: number,
+    path: ParkPath,
+    margin: number,
+  ) {
+      const cos = Math.cos(-path.rotation);
+      const sin = Math.sin(-path.rotation);
+      const offsetX = x - path.x;
+      const offsetZ = z - path.z;
+      const localX = offsetX * cos - offsetZ * sin;
+      const localZ = offsetX * sin + offsetZ * cos;
+      const hillHalfWidth = width / 2;
+      const hillHalfDepth = depth / 2;
+
+      return (
+        Math.abs(localX) <= path.width / 2 + hillHalfWidth + margin &&
+        Math.abs(localZ) <= path.depth / 2 + hillHalfDepth + margin
+      );
+  }
+
   private addFenceSegment(
     start: THREE.Vector3,
     end: THREE.Vector3,
@@ -1230,6 +1402,11 @@ export class DerbyScene {
   private tick = () => {
     const delta = Math.min(this.clock.getDelta(), 0.033);
 
+    if (this.running) {
+      this.updateHorses(delta);
+      this.updateParticles(delta);
+    }
+
     // Progress time of day (1 full day-night cycle takes 120 seconds)
     if (this.running) {
       this.timeOfDay = (this.timeOfDay + (delta / 120.0) * 24.0) % 24.0;
@@ -1246,11 +1423,6 @@ export class DerbyScene {
     const isNightOrSunset = this.timeOfDay >= 17.0 || this.timeOfDay < 7.5;
     const lightsOn = this.activeWeatherType === 'rainy' || this.activeWeatherType === 'storm' || isNightOrSunset;
     this.floodlights?.setLightsEnabled(lightsOn);
-
-    if (this.running) {
-      this.updateHorses(delta);
-      this.updateParticles(delta);
-    }
 
     // Update active achievement sprite effects
     for (let i = this.activeEffects.length - 1; i >= 0; i--) {
@@ -1489,6 +1661,33 @@ export class DerbyScene {
       horseA.targetLaneOffset = THREE.MathUtils.clamp(targetOffset, outsideLaneOffset, railLaneOffset);
     });
 
+    // In demo mode (no liveRace), trigger start_follow when race begins (horses leave start line)
+    if (!this.liveRace && this.cameraMode === 'start_hold' && this.running) {
+      let leadingProgress = 0;
+      this.horses.forEach((h) => {
+        if (h.cumulativeProgress > leadingProgress) {
+          leadingProgress = h.cumulativeProgress;
+        }
+      });
+      if (leadingProgress > 0.005 && leadingProgress < 0.05) {
+        this.setCameraMode('start_follow');
+      }
+    }
+
+    // In demo mode (no liveRace), trigger finish_view when leading horse approaches the finish line
+    if (!this.liveRace && this.cameraMode === 'free') {
+      let leadingProgress = 0;
+      this.horses.forEach((h) => {
+        if (h.cumulativeProgress > leadingProgress) {
+          leadingProgress = h.cumulativeProgress;
+        }
+      });
+      // Leading progress is between 0.93 and 1.0 (approaching the finish line)
+      if (leadingProgress >= 0.93 && leadingProgress < 1.0) {
+        this.setCameraMode('finish_view');
+      }
+    }
+
     this.horses.forEach((horse) => {
       horse.update(delta, this.trackCurve);
       horse.pendingStrikes.forEach((strike) => {
@@ -1506,7 +1705,13 @@ export class DerbyScene {
     ) return;
 
     event.preventDefault();
+    if (this.cameraMode === 'transitioning') return; // Lock inputs during transition
+
     this.pressedKeys.add(event.key);
+    if (this.cameraMode !== 'free' || (this.selectedHorse && this.selectedHorseCameraMode !== 'free')) {
+      this.selectedHorseCameraMode = 'free';
+      this.triggerTransitionToFree();
+    }
   };
 
   private handleKeyUp = (event: KeyboardEvent) => {
@@ -1518,27 +1723,43 @@ export class DerbyScene {
     ) return;
 
     event.preventDefault();
+    if (this.cameraMode === 'transitioning') return; // Lock inputs during transition
+
     this.pressedKeys.delete(event.key);
   };
 
   private handlePointerDown = (event: PointerEvent) => {
+    if (this.cameraMode === 'transitioning') return; // Lock inputs during transition
+
     this.isPointerLooking = true;
     this.lastPointerX = event.clientX;
     this.lastPointerY = event.clientY;
     this.pointerDownX = event.clientX;
     this.pointerDownY = event.clientY;
     this.renderer.domElement.setPointerCapture(event.pointerId);
+    
+    if (this.cameraMode !== 'free' || (this.selectedHorse && this.selectedHorseCameraMode !== 'free')) {
+      this.selectedHorseCameraMode = 'free';
+      this.triggerTransitionToFree();
+    }
   };
 
   private handlePointerMove = (event: PointerEvent) => {
     if (this.isPointerLooking) {
+      if (this.cameraMode === 'transitioning') return; // Lock inputs during transition
+
       const deltaX = event.clientX - this.lastPointerX;
       const deltaY = event.clientY - this.lastPointerY;
       this.lastPointerX = event.clientX;
       this.lastPointerY = event.clientY;
 
-      this.freeLookYaw -= deltaX * 0.004;
-      this.freeLookPitch = THREE.MathUtils.clamp(this.freeLookPitch - deltaY * 0.003, -0.58, 0.42);
+      if (this.cameraMode !== 'free' || (this.selectedHorse && this.selectedHorseCameraMode !== 'free')) {
+        this.selectedHorseCameraMode = 'free';
+        this.triggerTransitionToFree();
+      } else {
+        this.freeLookYaw -= deltaX * 0.004;
+        this.freeLookPitch = THREE.MathUtils.clamp(this.freeLookPitch - deltaY * 0.003, -0.58, 0.42);
+      }
     } else {
       this.checkHorseHover(event);
     }
@@ -1644,6 +1865,153 @@ export class DerbyScene {
   }
 
   private updateCameraRail(delta: number) {
+    if (this.cameraMode === 'transitioning') {
+      this.transTimer += delta;
+      const t = Math.min(this.transTimer / 1.5, 1.0);
+      const smoothT = t * t * (3 - 2 * t);
+
+      // Dynamically update the end target if following/jockeying a moving horse
+      if (this.selectedHorse && this.selectedHorseCameraMode === 'follow') {
+        const horse = this.selectedHorse;
+        const tangent = this.trackCurve.getTangentAt(horse.progress).normalize();
+        const horsePos = horse.group.position;
+        const distance = 8.5;
+        const height = 3.2;
+        this.transEndPos.copy(horsePos).addScaledVector(tangent, -distance);
+        this.transEndPos.y += height;
+        this.transEndLook.copy(horsePos).add(new THREE.Vector3(0, 1.3, 0));
+      } else if (this.selectedHorse && this.selectedHorseCameraMode === 'jockey') {
+        const horse = this.selectedHorse;
+        const tangent = this.trackCurve.getTangentAt(horse.progress).normalize();
+        const horsePos = horse.group.position;
+        const forwardOffset = 0.3;
+        const headHeight = 3.25;
+        this.transEndPos.copy(horsePos).addScaledVector(tangent, forwardOffset);
+        this.transEndPos.y += headHeight;
+        this.transEndLook.copy(this.transEndPos).addScaledVector(tangent, 15.0);
+        this.transEndLook.y -= 0.55;
+      }
+
+      const currentPos = new THREE.Vector3().lerpVectors(this.transStartPos, this.transEndPos, smoothT);
+      const currentLook = new THREE.Vector3().lerpVectors(this.transStartLook, this.transEndLook, smoothT);
+
+      this.camera.position.copy(currentPos);
+      this.camera.lookAt(currentLook);
+
+      if (t >= 1.0) {
+        this.cameraMode = 'free';
+        this.cameraTimer = 0.0;
+      }
+      return;
+    }
+
+    if (this.cameraMode === 'start_hold') {
+      this.cameraTimer += delta;
+      const hover = Math.sin(this.cameraTimer * 0.7) * 0.3;
+      this.camera.position.set(-15.0, 4.0 + hover, -10.0); // Shifted further back/right to clear Lane 1 from left UI
+      this.camera.lookAt(new THREE.Vector3(-31.0, 1.8, -24.0));
+      return;
+    }
+
+    if (this.cameraMode === 'start_follow') {
+      this.cameraTimer += delta;
+      if (this.cameraTimer > 5.0) {
+        this.setCameraMode('free');
+      } else {
+        // Find leading horse
+        let leadingHorse = this.horses[0];
+        this.horses.forEach((h) => {
+          if (h.cumulativeProgress > leadingHorse.cumulativeProgress) {
+            leadingHorse = h;
+          }
+        });
+        const horsePos = leadingHorse.group.position;
+        // Tracking camera driving ahead of the horse
+        this.camera.position.set(horsePos.x + 8.0, 3.5, -14.0);
+        this.camera.lookAt(horsePos);
+        return;
+      }
+    }
+
+    if (this.cameraMode === 'start_pan') {
+      this.cameraTimer += delta;
+      
+      if (this.cameraTimer < 4.0) {
+        // Phase 1: Pan the crowd / grandstand close
+        const p = this.cameraTimer / 4.0;
+        const x = -35.0 + p * 50.0; // from -35 to +15
+        const y = 7.5;
+        const z = -34.0;
+        this.camera.position.set(x, y, z);
+        this.camera.lookAt(new THREE.Vector3(-8.0, 6.0, -48.5));
+      } else if (this.cameraTimer < 7.5) {
+        // Phase 2: Smooth sweep from grandstand to the starting/finish line gates
+        const p = (this.cameraTimer - 4.0) / 3.5;
+        const t = p * p * (3 - 2 * p); // smoothstep interpolation
+        
+        const startPos = new THREE.Vector3(15.0, 7.5, -34.0);
+        const endPos = new THREE.Vector3(-15.0, 4.0, -10.0); // Sweep to the adjusted camera position
+        const lookStart = new THREE.Vector3(-8.0, 6.0, -48.5);
+        const lookEnd = new THREE.Vector3(-31.0, 1.8, -24.0);
+        
+        const currentPos = new THREE.Vector3().lerpVectors(startPos, endPos, t);
+        const currentLook = new THREE.Vector3().lerpVectors(lookStart, lookEnd, t);
+        
+        this.camera.position.copy(currentPos);
+        this.camera.lookAt(currentLook);
+      } else {
+        this.setCameraMode('start_hold');
+      }
+      return;
+    }
+
+    if (this.cameraMode === 'finish_view') {
+      this.cameraTimer += delta;
+      // Auto-return to free camera after 6.0 seconds in demo mode
+      if (!this.liveRace && this.cameraTimer > 6.0) {
+        this.setCameraMode('free');
+      } else {
+        const driftX = Math.sin(this.cameraTimer * 0.25) * 1.2;
+        const driftY = Math.cos(this.cameraTimer * 0.25) * 0.4;
+        this.camera.position.set(-44.0 + driftX, 4.2 + driftY, -14.0);
+        this.camera.lookAt(new THREE.Vector3(-31.0, 1.8, -24.0));
+        return;
+      }
+    }
+
+    // Selected Rider Follow/Jockey Cameras
+    if (this.selectedHorse && this.selectedHorseCameraMode === 'follow') {
+      const horse = this.selectedHorse;
+      const tangent = this.trackCurve.getTangentAt(horse.progress).normalize();
+      const horsePos = horse.group.position;
+      const distance = 8.5;
+      const height = 3.2;
+      const targetPos = new THREE.Vector3().copy(horsePos).addScaledVector(tangent, -distance);
+      targetPos.y += height;
+
+      // Smoothly lerp camera to prevent jitter
+      this.camera.position.lerp(targetPos, delta * 12.0);
+      const lookTarget = new THREE.Vector3().copy(horsePos).add(new THREE.Vector3(0, 1.3, 0));
+      this.camera.lookAt(lookTarget);
+      return;
+    }
+
+    if (this.selectedHorse && this.selectedHorseCameraMode === 'jockey') {
+      const horse = this.selectedHorse;
+      const tangent = this.trackCurve.getTangentAt(horse.progress).normalize();
+      const horsePos = horse.group.position;
+      const forwardOffset = 0.3;
+      const headHeight = 3.25;
+      const targetPos = new THREE.Vector3().copy(horsePos).addScaledVector(tangent, forwardOffset);
+      targetPos.y += headHeight;
+
+      this.camera.position.copy(targetPos);
+      const lookTarget = new THREE.Vector3().copy(targetPos).addScaledVector(tangent, 15.0);
+      lookTarget.y -= 0.55;
+      this.camera.lookAt(lookTarget);
+      return;
+    }
+
     const direction =
       (this.pressedKeys.has('ArrowLeft') ? 1 : 0) -
       (this.pressedKeys.has('ArrowRight') ? 1 : 0);

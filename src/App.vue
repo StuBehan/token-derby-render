@@ -14,6 +14,7 @@ let derbyScene: DerbyScene | null = null;
 
 const selectedHorse = ref<Horse | null>(null);
 const selectedHorsePos = ref<{ x: number; y: number; isBehind: boolean } | null>(null);
+const currentCamMode = ref<'free' | 'follow' | 'jockey'>('free');
 
 // Live Race state
 const joinCodeInput = ref('');
@@ -403,9 +404,18 @@ function getPillarNumber(position: string) {
 function deselectHorse() {
   if (derbyScene) {
     derbyScene.selectedHorse = null;
+    derbyScene.setHorseCameraMode('free');
   }
   selectedHorse.value = null;
   selectedHorsePos.value = null;
+  currentCamMode.value = 'free';
+}
+
+function setHorseCamMode(mode: 'free' | 'follow' | 'jockey') {
+  if (derbyScene) {
+    derbyScene.setHorseCameraMode(mode);
+    currentCamMode.value = mode;
+  }
 }
 
 onMounted(() => {
@@ -420,10 +430,18 @@ onMounted(() => {
 
   derbyScene.onHorseSelected = (horse) => {
     selectedHorse.value = horse;
+    if (horse && derbyScene) {
+      currentCamMode.value = derbyScene.selectedHorseCameraMode;
+    } else {
+      currentCamMode.value = 'free';
+    }
   };
 
   derbyScene.onHorsePositionUpdate = (pos) => {
     selectedHorsePos.value = pos;
+    if (derbyScene) {
+      currentCamMode.value = derbyScene.selectedHorseCameraMode;
+    }
   };
 
   // Wire API update listeners
@@ -542,6 +560,10 @@ function resetRace() {
   derbyScene?.reset();
 }
 
+function triggerStartCam() {
+  derbyScene?.setCameraMode('start_pan');
+}
+
 function updateWeather(event: Event) {
   const nextWeather = (event.target as HTMLSelectElement).value as WeatherType;
   weather.value = nextWeather;
@@ -647,6 +669,26 @@ function formatTimeLeft(seconds: number) {
             <span class="stat-label">Jersey</span>
             <span class="stat-val">
               <span class="color-dot" :style="{ backgroundColor: selectedHorse.getSaddleColorHex() }"></span>
+            </span>
+          </div>
+          <div class="stat-row camera-row">
+            <span class="stat-label">View</span>
+            <span class="stat-val view-btns">
+              <button 
+                type="button" 
+                :class="['cam-btn', { active: currentCamMode === 'free' }]" 
+                @click="setHorseCamMode('free')"
+              >Orbit</button>
+              <button 
+                type="button" 
+                :class="['cam-btn', { active: currentCamMode === 'follow' }]" 
+                @click="setHorseCamMode('follow')"
+              >Track</button>
+              <button 
+                type="button" 
+                :class="['cam-btn', { active: currentCamMode === 'jockey' }]" 
+                @click="setHorseCamMode('jockey')"
+              >Jockey</button>
             </span>
           </div>
         </div>
@@ -790,6 +832,7 @@ function formatTimeLeft(seconds: number) {
               {{ isRunning ? 'Pause' : 'Run' }}
             </button>
             <button type="button" @click="resetRace">Reset</button>
+            <button type="button" @click="triggerStartCam">🎥 Start Cam</button>
           </div>
         </div>
       </div>
