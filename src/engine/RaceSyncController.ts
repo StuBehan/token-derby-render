@@ -93,6 +93,14 @@ export class RaceSyncController {
         ? horse.cumulativeProgress
         : this.getInitialProgress(apiHorse, leaderTokens, elapsed);
 
+      if (race.status === 'finished') {
+        horse.cumulativeProgress = TOTAL_LAPS;
+        horse.progress = 0;
+        horse.speed = 0;
+        horse.isEatingGrass = false;
+        return;
+      }
+
       if (race.status === 'live' && !isInactive) {
         targetProgress = Math.max(horse.cumulativeProgress, targetProgress);
       }
@@ -135,8 +143,12 @@ export class RaceSyncController {
       const limit = speedDiff > 0 ? maxAccel * delta : maxDecel * delta;
       const nextSpeed = currentSpeed + Math.max(-limit, Math.min(limit, speedDiff));
 
-      horse.cumulativeProgress += nextSpeed * delta;
-      horse.progress = horse.cumulativeProgress % 1.0;
+      horse.cumulativeProgress = Math.min(TOTAL_LAPS, horse.cumulativeProgress + nextSpeed * delta);
+      horse.progress = horse.cumulativeProgress >= TOTAL_LAPS ? 0 : horse.cumulativeProgress % 1.0;
+      if (horse.cumulativeProgress >= TOTAL_LAPS) {
+        horse.speed = 0;
+        return;
+      }
       horse.speed = nextSpeed;
     });
   }

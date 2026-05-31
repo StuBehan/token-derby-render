@@ -43,7 +43,18 @@ export function updateRaceHorses(context: HorseRaceAnimatorContext) {
   }
 
   horses.forEach((horse) => {
+    if (raceSync.liveRace && horse.cumulativeProgress >= raceSync.totalLaps) {
+      horse.speed = 0;
+    }
+
     horse.update(delta, trackCurve);
+
+    if (raceSync.liveRace && horse.cumulativeProgress >= raceSync.totalLaps) {
+      horse.cumulativeProgress = raceSync.totalLaps;
+      horse.progress = 0;
+      horse.speed = 0;
+    }
+
     horse.pendingStrikes.forEach((strike) => {
       dustParticles.spawn(strike.position, strike.backwardDir, 3);
     });

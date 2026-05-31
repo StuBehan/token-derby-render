@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, computed, type ComponentPublicInstance } from 'vue';
-import * as THREE from 'three';
 import { DerbyScene } from './engine/DerbyScene';
 import { Horse } from './engine/Horse';
 import type { WeatherType } from './engine/Weather';
-import { RaceClient, type RaceView, type HorseColors } from './engine/RaceClient';
-import { fetchLondonWeather, fetchLondonDaylight } from './engine/WeatherService';
+import { type RaceView, type HorseColors } from './engine/RaceClient';
+import { type RequestedCameraMode, type HorseCameraMode, type SceneCameraMode } from './engine/CameraController';
+import { startConfettiAnimation } from './ui/confetti';
+import { useAchievementToasts } from './ui/achievementToasts';
+import { PodiumPreviewRenderer } from './ui/PodiumPreviewRenderer';
+import { useLiveRace } from './ui/useLiveRace';
+import { buildPodiumHorses, buildVisualPodium, getPillarNumber } from './ui/podium';
+import { formatClockTime, formatTimeLeft } from './ui/timeFormat';
 
 const viewport = ref<HTMLDivElement | null>(null);
 const isRunning = ref(true);
@@ -18,257 +23,64 @@ const selectedHorsePos = ref<{ x: number; y: number; isBehind: boolean } | null>
 const currentCamMode = ref<'free' | 'follow' | 'jockey'>('free');
 const isCameraLocked = ref(false);
 
-// Live Race state
-const joinCodeInput = ref('');
-const joinedRace = ref<RaceView | null>(null);
+const sceneCamMode = ref<RequestedCameraMode>('start_hold');
 
-function isHorseInactive(horse: any): boolean {
-  if (!joinedRace.value || joinedRace.value.status === 'finished') return false;
-  const lastHeartbeatMs = Date.parse(horse.last_heartbeat);
-  const serverTimeMs = Date.parse(joinedRace.value.server_time);
-  return (serverTimeMs - lastHeartbeatMs) > 75000;
+function isSelectableCameraMode(mode: SceneCameraMode): mode is RequestedCameraMode {
+  return mode !== 'transitioning';
 }
-
-const isPolling = ref(false);
-const errorMessage = ref('');
-
-const sceneCamMode = ref('start_hold');
 
 function onSceneCamModeChange(event: Event) {
-  const nextMode = (event.target as HTMLSelectElement).value;
+  const nextMode = (event.target as HTMLSelectElement).value as RequestedCameraMode;
   sceneCamMode.value = nextMode;
-  derbyScene?.setCameraMode(nextMode as any);
+  derbyScene?.setCameraMode(nextMode);
 }
-const raceClient = new RaceClient();
-const timeLeftSeconds = ref(0);
-let countdownInterval: number | null = null;
-
-// Achievement toast structures
-interface ActiveToast {
-  id: string;
-  horseName: string;
-  colorHex: string;
-  achievementName: string;
-  description: string;
-  xp: number;
-}
-
-const activeToasts = ref<ActiveToast[]>([]);
-const lastSeenEventTimes = new Map<string, number>();
-
-const ACHIEVEMENT_DESCRIPTIONS: Record<string, string> = {
-  'Racer!': 'Raced continuously for an hour',
-  'Overtake!': 'Overtook another horse',
-  'Pacesetter!': 'Led the race for an hour straight',
-  'Stampede!': 'Gained 7,000+ tokens in a single minute',
-  'Took the lead!': 'Charged into first place',
-  'Comeback!': 'Climbed from last place to the top half',
-  'Pulled Away!': 'Grew the lead by 5,000+ tokens in a minute',
-};
-
-function getAchievementDescription(name: string, xp: number): string {
-  if (name === 'Overtake!') {
-    const climbed = Math.floor(xp / 3);
-    if (climbed <= 1) return 'Overtook another horse';
-    return `Overtook ${climbed} horses`;
-  }
-  return ACHIEVEMENT_DESCRIPTIONS[name] || 'Gained an achievement';
-}
-
-let toastIdCounter = 0;
-function addToast(horseName: string, colorHex: string, achievementName: string, xp: number) {
-  const id = `toast-${toastIdCounter++}`;
-  const description = getAchievementDescription(achievementName, xp);
-  const toast: ActiveToast = {
-    id,
-    horseName,
-    colorHex,
-    achievementName,
-    description,
-    xp
-  };
-  activeToasts.value.push(toast);
-  
-  setTimeout(() => {
-    activeToasts.value = activeToasts.value.filter(t => t.id !== id);
-  }, 6000);
-}
+const achievementToasts = useAchievementToasts();
+const activeToasts = achievementToasts.activeToasts;
 
 function processAchievements(race: RaceView) {
-  for (const horse of race.horses) {
-    if (!horse.recent_events) continue;
-    
-    const watermark = lastSeenEventTimes.get(horse.horse_id) ?? 0;
-    const freshEvents = horse.recent_events.filter(e => e.at > watermark);
-    
-    if (freshEvents.length > 0) {
-      const maxAt = Math.max(...freshEvents.map(e => e.at));
-      lastSeenEventTimes.set(horse.horse_id, maxAt);
-      
-      for (const ev of freshEvents) {
-        // Trigger 3D floating text effect
-        derbyScene?.spawnAchievementEffect(horse.name, horse.colors.saddle, ev.name, ev.xp);
-        
-        // Trigger HTML UI toast
-        addToast(horse.name, horse.colors.saddle, ev.name, ev.xp);
-      }
-    }
-  }
+  achievementToasts.processRace(race, (horseName, colorHex, achievementName, xp) => {
+    derbyScene?.spawnAchievementEffect(horseName, colorHex, achievementName, xp);
+  });
 }
 
-// Leveling calculations
-const MAX_LEVEL = 30;
+const liveRace = useLiveRace({
+  onRaceUpdate: (race) => {
+    derbyScene?.updateLiveRace(race);
+    processAchievements(race);
+  },
+  onInitialRace: (race) => {
+    achievementToasts.seedFromRace(race);
+  },
+  onRaceFinished: () => {
+    triggerFinishedConfetti();
+  },
+  onLondonConditions: (londonWeather, daylight) => {
+    weather.value = londonWeather;
+    derbyScene?.setWeather(londonWeather);
 
-function xpForLevel(n: number): number {
-  return 1.8 * n ** 3 + 18 * n ** 2 + 50 * n - 19.8;
-}
+    timeOfDayRef.value = daylight.currentHour;
+    derbyScene?.setTimeOfDay(daylight.currentHour);
+    derbyScene?.setSunriseSunset(daylight.sunriseHour, daylight.sunsetHour);
+  },
+  onLeave: () => {
+    achievementToasts.clear();
+    showFinishedOverlay.value = false;
+    stopFinishedConfetti();
+    derbyScene?.clearLiveRace();
+  },
+});
 
-function thresholdForLevel(level: number): number {
-  if (level <= 1) return 0;
-  return Math.round(xpForLevel(level - 1));
-}
-
-function levelFromXp(xp: number): number {
-  const v = Math.max(0, Math.floor(xp));
-  let level = 1;
-  while (level < MAX_LEVEL && v >= thresholdForLevel(level + 1)) {
-    level++;
-  }
-  return level;
-}
-
-interface LevelInfo {
-  level: number;
-  xp: number;
-  level_start_xp: number;
-  next_level_xp: number | null;
-  xp_into_level: number;
-  xp_for_level: number | null;
-  progress: number;
-}
-
-function levelInfo(xp: number): LevelInfo {
-  const v = Math.max(0, Math.floor(xp));
-  const level = levelFromXp(v);
-  const level_start_xp = thresholdForLevel(level);
-  const isMax = level >= MAX_LEVEL;
-  const next_level_xp = isMax ? null : thresholdForLevel(level + 1);
-  const xp_into_level = v - level_start_xp;
-  const xp_for_level = isMax ? null : (next_level_xp! - level_start_xp);
-  const progress = isMax ? 1 : Math.min(1, xp_into_level / Math.max(1, xp_for_level!));
-  return { level, xp: v, level_start_xp, next_level_xp, xp_into_level, xp_for_level, progress };
-}
-
-const XP_AWARDS = {
-  compete: 25,
-  podium: 25,
-  runner_up: 15,
-  winner: 30,
-  token_bonus_max: 15,
-};
-
-function xpForRaceResult(rank: number): number {
-  let xp = XP_AWARDS.compete;
-  if (rank <= 3) xp += XP_AWARDS.podium;
-  if (rank === 2) xp += XP_AWARDS.runner_up;
-  if (rank === 1) xp += XP_AWARDS.winner;
-  return xp;
-}
-
-function xpForTokenBonus(rank: number, tokens: number, winner_tokens: number): number {
-  if (rank === 1) return XP_AWARDS.token_bonus_max;
-  if (winner_tokens <= 0) return 0;
-  const ratio = Math.max(0, tokens) / winner_tokens;
-  return Math.round(Math.min(1, ratio) * XP_AWARDS.token_bonus_max);
-}
-
-function xpForRaceFinish(rank: number, tokens: number, winner_tokens: number, live_xp: number = 0): number {
-  return xpForRaceResult(rank) + xpForTokenBonus(rank, tokens, winner_tokens) + live_xp;
-}
-
-// Confetti simulation
-interface ConfettiParticle {
-  x: number;
-  y: number;
-  r: number;
-  d: number;
-  color: string;
-  tilt: number;
-  tiltAngleIncremental: number;
-  tiltAngle: number;
-}
-
-function startConfettiAnimation(canvas: HTMLCanvasElement) {
-  const ctx = canvas.getContext('2d')!;
-  let width = (canvas.width = window.innerWidth);
-  let height = (canvas.height = window.innerHeight);
-  
-  const resizeHandler = () => {
-    width = canvas.width = window.innerWidth;
-    height = canvas.height = window.innerHeight;
-  };
-  window.addEventListener('resize', resizeHandler);
-  
-  const colors = ['#ffd166', '#7bed9f', '#a68bd8', '#ff6b6b', '#4db8ff', '#ffffff'];
-  const particles: ConfettiParticle[] = [];
-  const maxParticles = 120;
-  
-  for (let i = 0; i < maxParticles; i++) {
-    particles.push({
-      x: Math.random() * width,
-      y: Math.random() * height - height,
-      r: Math.random() * 6 + 4,
-      d: Math.random() * 2 + 1,
-      color: colors[i % colors.length],
-      tilt: Math.random() * 10 - 5,
-      tiltAngleIncremental: Math.random() * 0.07 + 0.02,
-      tiltAngle: Math.random() * Math.PI
-    });
-  }
-  
-  let animationId = 0;
-  const draw = () => {
-    ctx.clearRect(0, 0, width, height);
-    
-    for (let i = 0; i < maxParticles; i++) {
-      const p = particles[i];
-      p.tiltAngle += p.tiltAngleIncremental;
-      p.y += (Math.cos(p.d) + 3 + p.r / 2) / 2;
-      p.x += Math.sin(p.tiltAngle) * 0.5;
-      p.tilt = Math.sin(p.tiltAngle - i / 3) * 15;
-      
-      ctx.beginPath();
-      ctx.lineWidth = p.r / 2;
-      ctx.strokeStyle = p.color;
-      ctx.moveTo(p.x + p.tilt + p.r / 2, p.y);
-      ctx.lineTo(p.x + p.tilt, p.y + p.tilt + p.r / 2);
-      ctx.stroke();
-      
-      // Recycle particle if it falls off screen
-      if (p.y > height) {
-        particles[i] = {
-          x: Math.random() * width,
-          y: -20,
-          r: p.r,
-          d: p.d,
-          color: p.color,
-          tilt: Math.random() * 10 - 5,
-          tiltAngleIncremental: p.tiltAngleIncremental,
-          tiltAngle: p.tiltAngle
-        };
-      }
-    }
-    
-    animationId = requestAnimationFrame(draw);
-  };
-  
-  draw();
-  
-  return () => {
-    cancelAnimationFrame(animationId);
-    window.removeEventListener('resize', resizeHandler);
-  };
-}
+const {
+  joinCodeInput,
+  joinedRace,
+  isPolling,
+  errorMessage,
+  timeLeftSeconds,
+  sortedLiveHorses,
+  joinRace,
+  leaveRace,
+  isHorseInactive,
+} = liveRace;
 
 // Podium & Confetti Overlay State
 const showFinishedOverlay = ref(false);
@@ -285,145 +97,28 @@ function triggerFinishedConfetti() {
   }, 100);
 }
 
-// 3D Podium Previews
-interface PodiumPreview {
-  canvas: HTMLCanvasElement;
-  scene: THREE.Scene;
-  camera: THREE.PerspectiveCamera;
-  renderer: THREE.WebGLRenderer;
-  horse: Horse;
-  clock: THREE.Clock;
-  animationFrameId: number;
-}
-const activePreviews: Record<string, PodiumPreview> = {};
-
-function initPreview(canvas: HTMLCanvasElement, position: string, colors: HorseColors) {
-  const scene = new THREE.Scene();
-  
-  // Set up camera
-  const camera = new THREE.PerspectiveCamera(38, canvas.clientWidth / canvas.clientHeight, 0.1, 100);
-  camera.position.set(-0.2, 1.35, 4.6); // look slightly down from front-left iso, adjusted for 50% scale horse
-  camera.lookAt(0.3, 1.1, 0);
-
-  // Set up renderer
-  const renderer = new THREE.WebGLRenderer({
-    canvas,
-    alpha: true,
-    antialias: true
-  });
-  renderer.setSize(canvas.clientWidth, canvas.clientHeight);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
-  // Add lights
-  const ambient = new THREE.AmbientLight(0xffffff, 1.8);
-  scene.add(ambient);
-
-  const dirLight = new THREE.DirectionalLight(0xffffff, 2.5);
-  dirLight.position.set(5, 10, 7);
-  scene.add(dirLight);
-
-  const fillLight = new THREE.DirectionalLight(0xffeedd, 1.2);
-  fillLight.position.set(-5, 2, -2);
-  scene.add(fillLight);
-
-  // Instantiate 3D Horse
-  const horse = new Horse({
-    color: 0xffffff,
-    index: position === 'first' ? 0 : position === 'second' ? 1 : 2,
-    initialProgress: 0,
-    speed: 0.02,
-    laneOffset: 0,
-    name: `podium-${position}`,
-    colors: colors
-  });
-  horse.group.scale.multiplyScalar(0.5); // Reduce horse model scale by 50% but keep viewport same
-  scene.add(horse.group);
-
-  const clock = new THREE.Clock();
-  let animationFrameId = 0;
-  let previewRotation = -Math.PI / 2;
-
-  const animate = () => {
-    const delta = Math.min(clock.getDelta(), 0.033);
-    
-    // Animate the horse running/galloping in place
-    horse.updatePreview(delta, 0.02);
-    
-    // Rotate horse slowly in place for 3D inspection (applied after updatePreview sets it)
-    previewRotation += delta * 0.45;
-    horse.group.rotation.y = previewRotation;
-    
-    renderer.render(scene, camera);
-    animationFrameId = requestAnimationFrame(animate);
-  };
-  
-  animate();
-
-  activePreviews[position] = {
-    canvas,
-    scene,
-    camera,
-    renderer,
-    horse,
-    clock,
-    animationFrameId
-  };
+function stopFinishedConfetti() {
+  if (cleanConfetti) {
+    cleanConfetti();
+    cleanConfetti = null;
+  }
 }
 
-function cleanupPreview(position: string) {
-  const prev = activePreviews[position];
-  if (!prev) return;
-
-  cancelAnimationFrame(prev.animationFrameId);
-  prev.renderer.dispose();
-  
-  // Dispose scene nodes
-  prev.scene.traverse((obj) => {
-    if (obj instanceof THREE.Mesh) {
-      obj.geometry.dispose();
-      if (Array.isArray(obj.material)) {
-        obj.material.forEach((m) => m.dispose());
-      } else {
-        obj.material.dispose();
-      }
-    }
-  });
-
-  delete activePreviews[position];
-}
-
-function getErrorMessage(err: unknown, fallback: string) {
-  return err instanceof Error ? err.message : fallback;
-}
+const podiumPreviewRenderer = new PodiumPreviewRenderer();
 
 function setPodiumCanvasRef(el: Element | ComponentPublicInstance | null, position: string, colors: HorseColors) {
   if (!el) {
-    cleanupPreview(position);
+    podiumPreviewRenderer.cleanup(position);
     return;
   }
   if (!(el instanceof HTMLCanvasElement)) {
     return;
   }
-  if (activePreviews[position]) {
-    return; // Already initialized
-  }
   setTimeout(() => {
     if (el) {
-      initPreview(el, position, colors);
+      podiumPreviewRenderer.init(el, position, colors);
     }
   }, 50);
-}
-
-function getPodiumColor(position: string) {
-  if (position === 'first') return '#e7d17c';
-  if (position === 'second') return '#b0b5bc';
-  return '#cd7f32';
-}
-
-function getPillarNumber(position: string) {
-  if (position === 'first') return '1';
-  if (position === 'second') return '2';
-  return '3';
 }
 
 function deselectHorse() {
@@ -436,7 +131,7 @@ function deselectHorse() {
   currentCamMode.value = 'free';
 }
 
-function setHorseCamMode(mode: 'free' | 'follow' | 'jockey') {
+function setHorseCamMode(mode: HorseCameraMode) {
   if (derbyScene) {
     derbyScene.setHorseCameraMode(mode);
     currentCamMode.value = mode;
@@ -460,8 +155,10 @@ onMounted(() => {
   isCameraLocked.value = derbyScene.isCameraLocked;
 
   // Set up the camera mode update callback
-  derbyScene.onCameraModeUpdate = (mode: string) => {
-    sceneCamMode.value = mode;
+  derbyScene.onCameraModeUpdate = (mode: SceneCameraMode) => {
+    if (isSelectableCameraMode(mode)) {
+      sceneCamMode.value = mode;
+    }
   };
 
   derbyScene.onHorseSelected = (horse) => {
@@ -480,124 +177,17 @@ onMounted(() => {
     }
   };
 
-  // Wire API update listeners
-  let prevStatus = '';
-  raceClient.onRaceUpdate = (race) => {
-    const isNewFinish = race.status === 'finished' && prevStatus !== 'finished';
-    prevStatus = race.status;
-
-    joinedRace.value = race;
-    timeLeftSeconds.value = race.time_left_seconds;
-    derbyScene?.updateLiveRace(race);
-    isPolling.value = false;
-    processAchievements(race);
-
-    if (isNewFinish) {
-      triggerFinishedConfetti();
-    }
-  };
-
-  raceClient.onRaceError = (err) => {
-    errorMessage.value = 'Connection error: ' + err.message;
-    isPolling.value = false;
-  };
-
   derbyScene.start();
-
-
-  countdownInterval = window.setInterval(() => {
-    if (joinedRace.value && joinedRace.value.status === 'live') {
-      if (timeLeftSeconds.value > 0) {
-        timeLeftSeconds.value--;
-      }
-    }
-  }, 1000);
+  liveRace.startCountdown();
 });
 
 onBeforeUnmount(() => {
-  raceClient.stopPolling();
-  if (countdownInterval !== null) {
-    window.clearInterval(countdownInterval);
-    countdownInterval = null;
-  }
-  if (cleanConfetti) {
-    cleanConfetti();
-    cleanConfetti = null;
-  }
-  cleanupPreview('first');
-  cleanupPreview('second');
-  cleanupPreview('third');
+  liveRace.dispose();
+  stopFinishedConfetti();
+  podiumPreviewRenderer.cleanupAll();
   derbyScene?.dispose();
   derbyScene = null;
 });
-
-async function joinRace() {
-  const code = joinCodeInput.value.trim().toUpperCase();
-  if (!code) {
-    errorMessage.value = 'Please enter a join code.';
-    return;
-  }
-  errorMessage.value = '';
-  isPolling.value = true;
-  raceClient.setJoinCode(code);
-  
-  try {
-    const initialRace = await raceClient.fetchOnce();
-    if (initialRace) {
-      joinedRace.value = initialRace;
-      timeLeftSeconds.value = initialRace.time_left_seconds;
-      derbyScene?.updateLiveRace(initialRace);
-
-      // Fetch London weather and daylight conditions on join
-      Promise.all([fetchLondonWeather(), fetchLondonDaylight()]).then(([londonWeather, daylight]) => {
-        weather.value = londonWeather;
-        derbyScene?.setWeather(londonWeather);
-
-        timeOfDayRef.value = daylight.currentHour;
-        derbyScene?.setTimeOfDay(daylight.currentHour);
-        derbyScene?.setSunriseSunset(daylight.sunriseHour, daylight.sunsetHour);
-      }).catch((err) => {
-        console.error('Failed to sync London weather/daylight on join:', err);
-      });
-      
-      // Seed watermark with existing events when joining so we don't spam historical alerts
-      for (const horse of initialRace.horses) {
-        if (horse.recent_events && horse.recent_events.length > 0) {
-          const maxAt = Math.max(...horse.recent_events.map(e => e.at));
-          lastSeenEventTimes.set(horse.horse_id, maxAt);
-        }
-      }
-      
-      raceClient.startPolling(2000);
-
-      if (initialRace.status === 'finished') {
-        triggerFinishedConfetti();
-      }
-    } else {
-      errorMessage.value = 'Race not found.';
-      isPolling.value = false;
-    }
-  } catch (err: unknown) {
-    errorMessage.value = getErrorMessage(err, 'Error connecting to race server.');
-    isPolling.value = false;
-  }
-}
-
-function leaveRace() {
-  raceClient.stopPolling();
-  joinedRace.value = null;
-  timeLeftSeconds.value = 0;
-  isPolling.value = false;
-  errorMessage.value = '';
-  lastSeenEventTimes.clear();
-  activeToasts.value = [];
-  showFinishedOverlay.value = false;
-  if (cleanConfetti) {
-    cleanConfetti();
-    cleanConfetti = null;
-  }
-  derbyScene?.clearLiveRace();
-}
 
 function toggleRace() {
   isRunning.value = !isRunning.value;
@@ -621,66 +211,11 @@ function onTimeSliderInput(event: Event) {
   derbyScene?.setTimeOfDay(nextTime);
 }
 
-const formattedTime = computed(() => {
-  const hours = Math.floor(timeOfDayRef.value);
-  const minutes = Math.floor((timeOfDayRef.value % 1) * 60);
-  const hh = hours.toString().padStart(2, '0');
-  const mm = minutes.toString().padStart(2, '0');
-  return `${hh}:${mm}`;
-});
+const formattedTime = computed(() => formatClockTime(timeOfDayRef.value));
 
-const sortedLiveHorses = computed(() => {
-  if (!joinedRace.value) return [];
-  return [...joinedRace.value.horses].sort((a, b) => a.rank - b.rank);
-});
+const podiumHorses = computed(() => buildPodiumHorses(joinedRace.value));
 
-const podiumHorses = computed(() => {
-  if (!joinedRace.value) return [];
-  const sorted = [...joinedRace.value.horses].sort((a, b) => a.rank - b.rank);
-  const winnerTokens = sorted[0]?.current_tokens ?? 0;
-  
-  return sorted.map(h => {
-    const liveXp = h.live_xp || 0;
-    const xpBefore = h.xp;
-    const xpAwarded = xpForRaceFinish(h.rank, h.current_tokens, winnerTokens, liveXp);
-    const xpAfter = xpBefore + xpAwarded;
-    const beforeInfo = levelInfo(xpBefore);
-    const afterInfo = levelInfo(xpAfter);
-    const levelledUp = afterInfo.level > beforeInfo.level;
-    
-    return {
-      ...h,
-      xpAwarded,
-      xpBefore,
-      xpAfter,
-      beforeInfo,
-      afterInfo,
-      levelledUp
-    };
-  });
-});
-
-const visualPodium = computed(() => {
-  const horses = podiumHorses.value;
-  if (horses.length === 0) return [];
-  const first = horses[0];
-  const second = horses[1] || null;
-  const third = horses[2] || null;
-  
-  const result = [];
-  if (second) result.push({ position: 'second', data: second, badge: '🥈', label: '2nd' });
-  if (first) result.push({ position: 'first', data: first, badge: '🥇', label: '1st' });
-  if (third) result.push({ position: 'third', data: third, badge: '🥉', label: '3rd' });
-  return result;
-});
-
-function formatTimeLeft(seconds: number) {
-  if (seconds <= 0) return '00:00:00';
-  const hrs = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  const secs = seconds % 60;
-  return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-}
+const visualPodium = computed(() => buildVisualPodium(podiumHorses.value));
 </script>
 
 <template>

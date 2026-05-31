@@ -11,7 +11,7 @@ import { PerfOverlay } from './PerfOverlay';
 import { applyRendererPerformanceSettings } from './RendererPerformance';
 import { AchievementEffects } from './AchievementEffects';
 import { GrandstandScoreboardText } from './GrandstandScoreboardText';
-import { CameraController, type RequestedCameraMode, type HorseCameraMode } from './CameraController';
+import { CameraController, type RequestedCameraMode, type HorseCameraMode, type SceneCameraMode } from './CameraController';
 import { RaceSyncController } from './RaceSyncController';
 import { DustParticleSystem } from './DustParticleSystem';
 import { HorsePicker } from './HorsePicker';
@@ -47,7 +47,7 @@ export class DerbyScene {
   public onHorseSelected?: (horse: Horse | null) => void;
   public onHorsePositionUpdate?: (pos: { x: number; y: number; isBehind: boolean } | null) => void;
   public onCameraLockUpdate?: (locked: boolean) => void;
-  public onCameraModeUpdate?: (mode: string) => void;
+  public onCameraModeUpdate?: (mode: SceneCameraMode) => void;
   private lastSentCameraLock = false;
   private lastSentCameraMode = 'start_hold';
   private readonly horsePicker: HorsePicker;
