@@ -194,7 +194,7 @@ export class Horse {
     });
     this.jockey.group.position.set(-0.15, 2.53, 0); // Position correctly to sit on saddle
     this.jockey.group.scale.setScalar(0.82); // Scale jockey up relative to the horse (about 100% larger in world coords)
-    this.jockey.pose(-0.28, 0.15, -0.6, -0.6, 1.15, 1.15); // Arms forward, elbows bent to hold reins
+    this.jockey.pose(-0.28, 0.15, -0.1, -0.1, 1.3, 1.3); // Arms forward, elbows bent to hold reins
     
     // Position legs to straddle the horse flanks (hugging the sides)
     this.jockey.leftLeg.position.set(0.12, -0.54, 0.45);
@@ -375,10 +375,10 @@ export class Horse {
     this.jockey.pose(
       targetLean,
       targetHeadTilt,
-      -0.6,
-      -0.6,
-      1.15,
-      1.15
+      -0.1,
+      -0.1,
+      1.3,
+      1.3
     );
 
     // Update reins positions dynamically to connect horse snout to jockey's hands
@@ -427,10 +427,10 @@ export class Horse {
     this.jockey.pose(
       targetLean,
       targetHeadTilt,
-      -0.6,
-      -0.6,
-      1.15,
-      1.15
+      -0.1,
+      -0.1,
+      1.3,
+      1.3
     );
     
     // Update reins positions dynamically to connect horse snout to jockey's hands
