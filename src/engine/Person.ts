@@ -18,18 +18,23 @@ export class Person {
   public readonly leftLeg: THREE.Mesh;
   public readonly rightLeg: THREE.Mesh;
 
+  private readonly clothMaterial: THREE.MeshStandardMaterial;
+  private readonly helmetMaterial: THREE.MeshStandardMaterial;
+
   constructor(config: PersonConfig) {
     this.group = new THREE.Group();
 
     // Create materials
-    const clothMaterial = new THREE.MeshStandardMaterial({
+    this.clothMaterial = new THREE.MeshStandardMaterial({
       color: config.clothColor,
       roughness: 0.5,
     });
-    const helmetMaterial = new THREE.MeshStandardMaterial({
+    this.helmetMaterial = new THREE.MeshStandardMaterial({
       color: config.helmetColor,
       roughness: 0.55,
     });
+    const clothMaterial = this.clothMaterial;
+    const helmetMaterial = this.helmetMaterial;
     const skinMaterial = new THREE.MeshStandardMaterial({
       color: 0xf2d4ac,
       roughness: 0.55,
@@ -189,5 +194,11 @@ export class Person {
     this.rightArm.rotation.z = rightArmSwing;
     this.leftForearm.rotation.z = leftElbowBend;
     this.rightForearm.rotation.z = rightElbowBend;
+  }
+
+  public updateColors(colorHex: string) {
+    const col = new THREE.Color(colorHex);
+    this.clothMaterial.color.copy(col);
+    this.helmetMaterial.color.copy(col);
   }
 }

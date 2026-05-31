@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref, computed } from 'vue';
 import { DerbyScene } from './engine/DerbyScene';
 import type { Horse } from './engine/Horse';
 import type { WeatherType } from './engine/Weather';
+import { RaceClient, type RaceView } from './engine/RaceClient';
 
 const viewport = ref<HTMLDivElement | null>(null);
 const isRunning = ref(true);
@@ -13,16 +14,12 @@ let derbyScene: DerbyScene | null = null;
 const selectedHorse = ref<Horse | null>(null);
 const selectedHorsePos = ref<{ x: number; y: number; isBehind: boolean } | null>(null);
 
-const horseNames = ["Glinting Gold", "Blue Bullet", "Crimson Comet", "Green Gale", "Purple Pegasus", "Orange Outlaw"];
-const horseAccentColors = ['#d84d38', '#2d7dd2', '#e7c948', '#54a66d', '#8b5bd6', '#f47a30'];
-
-function getHorseName(index: number) {
-  return horseNames[index % horseNames.length];
-}
-
-function getHorseAccentColor(index: number) {
-  return horseAccentColors[index % horseAccentColors.length];
-}
+// Live Race state
+const joinCodeInput = ref('');
+const joinedRace = ref<RaceView | null>(null);
+const isPolling = ref(false);
+const errorMessage = ref('');
+const raceClient = new RaceClient();
 
 function deselectHorse() {
   if (derbyScene) {
@@ -50,13 +47,60 @@ onMounted(() => {
     selectedHorsePos.value = pos;
   };
 
+  // Wire API update listeners
+  raceClient.onRaceUpdate = (race) => {
+    joinedRace.value = race;
+    derbyScene?.updateLiveRace(race);
+    isPolling.value = false;
+  };
+
+  raceClient.onRaceError = (err) => {
+    errorMessage.value = 'Connection error: ' + err.message;
+    isPolling.value = false;
+  };
+
   derbyScene.start();
 });
 
 onBeforeUnmount(() => {
+  raceClient.stopPolling();
   derbyScene?.dispose();
   derbyScene = null;
 });
+
+async function joinRace() {
+  const code = joinCodeInput.value.trim().toUpperCase();
+  if (!code) {
+    errorMessage.value = 'Please enter a join code.';
+    return;
+  }
+  errorMessage.value = '';
+  isPolling.value = true;
+  raceClient.setJoinCode(code);
+  
+  try {
+    const initialRace = await raceClient.fetchOnce();
+    if (initialRace) {
+      joinedRace.value = initialRace;
+      derbyScene?.updateLiveRace(initialRace);
+      raceClient.startPolling(2000);
+    } else {
+      errorMessage.value = 'Race not found.';
+      isPolling.value = false;
+    }
+  } catch (err: any) {
+    errorMessage.value = err.message || 'Error connecting to race server.';
+    isPolling.value = false;
+  }
+}
+
+function leaveRace() {
+  raceClient.stopPolling();
+  joinedRace.value = null;
+  isPolling.value = false;
+  errorMessage.value = '';
+  derbyScene?.clearLiveRace();
+}
 
 function toggleRace() {
   isRunning.value = !isRunning.value;
@@ -87,6 +131,18 @@ const formattedTime = computed(() => {
   const mm = minutes.toString().padStart(2, '0');
   return `${hh}:${mm}`;
 });
+
+const sortedLiveHorses = computed(() => {
+  if (!joinedRace.value) return [];
+  return [...joinedRace.value.horses].sort((a, b) => a.rank - b.rank);
+});
+
+function formatTimeLeft(seconds: number) {
+  if (seconds <= 0) return '00:00';
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
 </script>
 
 <template>
@@ -100,9 +156,9 @@ const formattedTime = computed(() => {
         class="horse-info-tag"
         :style="{ left: selectedHorsePos.x + '%', top: selectedHorsePos.y + '%' }"
       >
-        <div class="tag-header" :style="{ borderLeftColor: getHorseAccentColor(selectedHorse.index) }">
+        <div class="tag-header" :style="{ borderLeftColor: selectedHorse.getSaddleColorHex() }">
           <div class="header-main">
-            <span class="horse-name">{{ getHorseName(selectedHorse.index) }}</span>
+            <span class="horse-name">{{ selectedHorse.name }}</span>
             <span class="lane-badge">Lane {{ selectedHorse.index + 1 }}</span>
           </div>
           <button type="button" class="close-tag-btn" @click="deselectHorse" aria-label="Deselect horse">×</button>
@@ -117,12 +173,64 @@ const formattedTime = computed(() => {
             <span class="stat-val font-mono">{{ Math.round(selectedHorse.speed * 2000) }} mph</span>
           </div>
           <div class="stat-row">
-            <span class="stat-label">Jockey Jersey</span>
+            <span class="stat-label">Jersey</span>
             <span class="stat-val">
-              <span class="color-dot" :style="{ backgroundColor: getHorseAccentColor(selectedHorse.index) }"></span>
+              <span class="color-dot" :style="{ backgroundColor: selectedHorse.getSaddleColorHex() }"></span>
             </span>
           </div>
         </div>
+      </div>
+
+      <!-- Live Race Panel (Glassmorphism overlay) -->
+      <div v-if="joinedRace" class="live-race-panel">
+        <div class="panel-header">
+          <div class="live-indicator-wrapper">
+            <span :class="['status-dot', joinedRace.status]"></span>
+            <span class="status-text">{{ joinedRace.status.toUpperCase() }}</span>
+          </div>
+          <h2>{{ joinedRace.name }}</h2>
+          <p class="join-code-badge font-mono">CODE: {{ joinedRace.join_code }}</p>
+        </div>
+        
+        <div class="panel-body">
+          <div class="time-left-display">
+            <span class="time-label">Time Remaining:</span>
+            <span class="time-val font-mono">{{ formatTimeLeft(joinedRace.time_left_seconds) }}</span>
+          </div>
+
+          <div class="leaderboard-container">
+            <h3>Leaderboard</h3>
+            <div v-if="joinedRace.horses.length === 0" class="no-racers">
+              Waiting for horses to join...
+            </div>
+            <table v-else class="leaderboard-table">
+              <thead>
+                <tr>
+                  <th class="col-rank">Pos</th>
+                  <th class="col-name">Horse / Jockey</th>
+                  <th class="col-tokens">Tokens</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr 
+                  v-for="horse in sortedLiveHorses" 
+                  :key="horse.horse_id"
+                  :class="{ 'is-leader': horse.rank === 1 }"
+                >
+                  <td class="col-rank font-mono">{{ horse.rank }}</td>
+                  <td class="col-name">
+                    <span class="color-dot" :style="{ backgroundColor: horse.colors.saddle }"></span>
+                    <span class="horse-display-name">{{ horse.name }}</span>
+                    <span class="user-display-name">by {{ horse.user_name }}</span>
+                  </td>
+                  <td class="col-tokens font-mono">{{ horse.current_tokens.toLocaleString() }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <button type="button" class="leave-btn" @click="leaveRace">Leave Live Race</button>
       </div>
 
       <div class="race-hud">
@@ -132,7 +240,24 @@ const formattedTime = computed(() => {
         </div>
 
         <div class="hud-controls">
-          <div class="time-control">
+          <!-- Join Live Race Form -->
+          <div v-if="!joinedRace" class="join-race-form">
+            <input 
+              v-model="joinCodeInput"
+              type="text" 
+              placeholder="Join Code" 
+              aria-label="Race Join Code"
+              @keydown.enter="joinRace"
+            />
+            <button type="button" class="join-btn" :disabled="isPolling" @click="joinRace">
+              {{ isPolling ? 'Watching...' : 'Watch' }}
+            </button>
+          </div>
+          <div v-if="errorMessage" class="hud-error-message font-mono">
+            {{ errorMessage }}
+          </div>
+
+          <div class="time-control" v-if="!joinedRace">
             <span class="clock-display" aria-live="polite">{{ formattedTime }}</span>
             <input 
               type="range" 
@@ -145,7 +270,7 @@ const formattedTime = computed(() => {
             />
           </div>
 
-          <div class="race-actions">
+          <div class="race-actions" v-if="!joinedRace">
             <select :value="weather" aria-label="Weather" @change="updateWeather">
               <option value="light_cloud">Light Cloud</option>
               <option value="very_cloudy">Very Cloudy</option>

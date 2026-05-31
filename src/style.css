@@ -352,3 +352,255 @@ select:hover {
   vertical-align: middle;
   border: 1px solid rgba(255, 255, 255, 0.2);
 }
+
+/* Live Race Panel (Glassmorphism overlay on left side of screen) */
+.live-race-panel {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  bottom: 20px;
+  width: 320px;
+  background: rgba(16, 20, 15, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(16px);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  color: #fff8ec;
+  pointer-events: auto;
+  animation: panelFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes panelFadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.panel-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.panel-header h2 {
+  margin: 6px 0 2px 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.join-code-badge {
+  font-size: 0.76rem;
+  color: #e7d17c;
+  letter-spacing: 0.05em;
+  margin: 0;
+}
+
+.live-indicator-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-text {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-dot.pending {
+  background-color: #f1c40f;
+  box-shadow: 0 0 8px #f1c40f;
+}
+
+.status-dot.live {
+  background-color: #e74c3c;
+  box-shadow: 0 0 8px #e74c3c;
+  animation: statusBlink 1s infinite alternate;
+}
+
+@keyframes statusBlink {
+  from { opacity: 0.3; }
+  to { opacity: 1; }
+}
+
+.status-dot.finished {
+  background-color: #2ecc71;
+  box-shadow: 0 0 8px #2ecc71;
+}
+
+.panel-body {
+  flex: 1;
+  padding: 16px 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.time-left-display {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+}
+
+.time-label {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.time-val {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #e7d17c;
+}
+
+.leaderboard-container h3 {
+  margin: 0 0 10px 0;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.no-racers {
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.4);
+  font-style: italic;
+  text-align: center;
+  padding: 20px 0;
+}
+
+.leaderboard-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.leaderboard-table th {
+  text-align: left;
+  padding-bottom: 8px;
+  color: rgba(255, 255, 255, 0.4);
+  font-weight: 500;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.leaderboard-table td {
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  vertical-align: middle;
+}
+
+.leaderboard-table tr.is-leader td {
+  color: #e7d17c;
+}
+
+.col-rank {
+  width: 32px;
+  font-weight: 700;
+}
+
+.col-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.horse-display-name {
+  font-weight: 600;
+}
+
+.user-display-name {
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.col-tokens {
+  text-align: right;
+}
+
+.leave-btn {
+  margin: 16px 20px;
+  border: 1px solid rgba(231, 76, 60, 0.4);
+  background: rgba(231, 76, 60, 0.15);
+  color: #ff9f93;
+  width: calc(100% - 40px);
+}
+
+.leave-btn:hover {
+  background: rgba(231, 76, 60, 0.3);
+}
+
+/* Join Live Race Form in HUD */
+.join-race-form {
+  display: flex;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.join-race-form input {
+  width: 120px;
+  height: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 6px;
+  background: rgba(22, 26, 20, 0.72);
+  color: #fff8ec;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.join-race-form input:focus {
+  border-color: #e7d17c;
+  outline: none;
+}
+
+.join-btn {
+  border: 1px solid rgba(231, 209, 124, 0.4);
+  background: rgba(231, 209, 124, 0.15);
+  color: #e7d17c;
+}
+
+.join-btn:hover {
+  background: rgba(231, 209, 124, 0.35);
+}
+
+.hud-error-message {
+  color: #e74c3c;
+  font-size: 0.8rem;
+  margin-top: -4px;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
+}
+
+/* Mobile responsive fixes */
+@media (max-width: 640px) {
+  .live-race-panel {
+    top: 90px;
+    left: 14px;
+    right: 14px;
+    bottom: 14px;
+    width: auto;
+  }
+}

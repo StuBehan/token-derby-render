@@ -8,6 +8,7 @@ import { LondonSkyline } from './LondonSkyline';
 import { Floodlights } from './Floodlights';
 import { FinishLine } from './FinishLine';
 import { WeatherManager, WeatherType, RainEffect, LightningEffect } from './Weather';
+import { RaceView, HorseColors, HorseView } from './RaceClient';
 
 type ParkPath = {
   width: number;
@@ -117,6 +118,9 @@ export class DerbyScene {
   private perfLightCount = 0;
   private animationFrame = 0;
   private running = true;
+  private liveRace: RaceView | null = null;
+  private serverTimeOffset = 0;
+  private totalLaps = 5;
   private readonly resizeObserver: ResizeObserver;
 
   constructor(host: HTMLElement) {
@@ -180,11 +184,95 @@ export class DerbyScene {
 
   reset() {
     this.running = true;
-    this.horses.forEach((horse) => {
-      horse.reset();
-      // Re-randomize speed within the [0.018, 0.024] speed band on race resets
-      horse.speed = 0.018 + Math.random() * 0.006;
+    if (this.liveRace) {
+      // In live race, reset doesn't make sense to randomize simulated speeds,
+      // but we can re-sync.
+      this.syncHorses(this.liveRace.horses);
+    } else {
+      this.horses.forEach((horse) => {
+        horse.reset();
+        // Re-randomize speed within the [0.018, 0.024] speed band on race resets
+        horse.speed = 0.018 + Math.random() * 0.006;
+      });
+    }
+  }
+
+  updateLiveRace(race: RaceView) {
+    this.liveRace = race;
+    this.serverTimeOffset = Date.parse(race.server_time) - Date.now();
+    this.syncHorses(race.horses);
+  }
+
+  clearLiveRace() {
+    this.liveRace = null;
+    this.clearHorses();
+    this.addHorses();
+  }
+
+  private clearHorses() {
+    this.horses.forEach((h) => {
+      this.scene.remove(h.group);
     });
+    this.horses.length = 0;
+  }
+
+  private syncHorses(apiHorses: HorseView[]) {
+    const needsRecreate =
+      this.horses.length !== apiHorses.length ||
+      this.horses.some((h, idx) => h.name !== apiHorses[idx].name);
+
+    if (needsRecreate) {
+      this.clearHorses();
+
+      // Pre-calculate current active race state for initial placement
+      let leaderTokens = 1;
+      apiHorses.forEach((h) => {
+        if (h.current_tokens > leaderTokens) {
+          leaderTokens = h.current_tokens;
+        }
+      });
+
+      let t_elapsed = 0;
+      if (this.liveRace) {
+        const startTime = Date.parse(this.liveRace.start_time);
+        const endTime = Date.parse(this.liveRace.end_time);
+        const now = Date.now() + this.serverTimeOffset;
+        const durationMs = endTime - startTime;
+        if (durationMs > 0) {
+          t_elapsed = Math.max(0, Math.min(1, (now - startTime) / durationMs));
+        }
+        if (this.liveRace.status === 'pending') t_elapsed = 0;
+        if (this.liveRace.status === 'finished') t_elapsed = 1.0;
+      }
+
+      apiHorses.forEach((apiHorse, index) => {
+        const k_tokens = apiHorse.current_tokens / leaderTokens;
+        let initial_p = k_tokens * t_elapsed * this.totalLaps;
+        if (this.liveRace?.status === 'pending') {
+          initial_p = 0.0;
+        } else if (this.liveRace?.status === 'finished' || initial_p >= this.totalLaps) {
+          initial_p = this.totalLaps;
+        }
+
+        const horse = new Horse({
+          color: 0x3b2217,
+          index,
+          initialProgress: initial_p,
+          speed: 0,
+          laneOffset: this.getLaneCenterOffset(index),
+          name: apiHorse.name,
+          colors: apiHorse.colors,
+        });
+        this.horses.push(horse);
+        this.scene.add(horse.group);
+      });
+    } else {
+      apiHorses.forEach((apiHorse, index) => {
+        const horse = this.horses[index];
+        horse.name = apiHorse.name;
+        horse.updateColors(apiHorse.colors);
+      });
+    }
   }
 
   dispose() {
@@ -1058,7 +1146,13 @@ export class DerbyScene {
       const minutes = Math.floor((this.timeOfDay % 1) * 60);
       const timeStr = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
       
-      const leaderText = `  * LEADER: ${leaderName.toUpperCase()} (LANE ${sortedHorses[0].index + 1})  * 2ND: ${runnerUpName.toUpperCase()} (LANE ${sortedHorses[1].index + 1})  * TIME: ${timeStr}  * WEATHER: ${this.activeWeatherType.replace('_', ' ').toUpperCase()}  `;
+      let leaderText = '';
+      if (this.liveRace) {
+        const statusStr = this.liveRace.status.toUpperCase();
+        leaderText = `  • RACE: ${this.liveRace.name.toUpperCase()}  • JOIN CODE: ${this.liveRace.join_code}  • STATUS: ${statusStr}  • LEADER: ${leaderName.toUpperCase()}  • 2ND: ${runnerUpName.toUpperCase()}  `;
+      } else {
+        leaderText = `  • LEADER: ${leaderName.toUpperCase()} (LANE ${sortedHorses[0].index + 1})  • 2ND: ${runnerUpName.toUpperCase()} (LANE ${sortedHorses[1].index + 1})  • TIME: ${timeStr}  • WEATHER: ${this.activeWeatherType.replace('_', ' ').toUpperCase()}  `;
+      }
       
       this.grandstand.updateScoreboard(delta, leaderText);
     }
@@ -1127,36 +1221,121 @@ export class DerbyScene {
   }
 
   private updateHorses(delta: number) {
+    if (this.liveRace) {
+      const startTime = Date.parse(this.liveRace.start_time);
+      const endTime = Date.parse(this.liveRace.end_time);
+      const now = Date.now() + this.serverTimeOffset;
+      const durationMs = endTime - startTime;
+      const elapsedMs = now - startTime;
+
+      let t_elapsed = 0;
+      if (durationMs > 0) {
+        t_elapsed = Math.max(0, Math.min(1, elapsedMs / durationMs));
+      }
+
+      if (this.liveRace.status === 'pending') {
+        t_elapsed = 0;
+      } else if (this.liveRace.status === 'finished') {
+        t_elapsed = 1.0;
+      }
+
+      let leaderTokens = 1;
+      this.liveRace.horses.forEach((h) => {
+        if (h.current_tokens > leaderTokens) {
+          leaderTokens = h.current_tokens;
+        }
+      });
+
+      this.horses.forEach((horse, index) => {
+        const apiHorse = this.liveRace!.horses[index];
+        if (!apiHorse) return;
+
+        const k_tokens = apiHorse.current_tokens / leaderTokens;
+        
+        let target_p = k_tokens * t_elapsed * this.totalLaps;
+        if (this.liveRace!.status === 'pending') {
+          target_p = 0.0; // Start all inline side-by-side
+        } else if (this.liveRace!.status === 'finished' || target_p >= this.totalLaps) {
+          target_p = this.totalLaps;
+        }
+
+        // Monotonic constraint: a horse should never run backward during the live race phase
+        if (this.liveRace!.status === 'live') {
+          target_p = Math.max(horse.cumulativeProgress, target_p);
+        }
+
+        const diff = target_p - horse.cumulativeProgress;
+        
+        // If drift is negative (e.g. race reset to pending without rebuild), snap it instantly
+        if (diff < 0) {
+          horse.cumulativeProgress = target_p;
+          horse.progress = target_p % 1.0;
+          horse.speed = 0;
+        } else {
+          // Responsive capped lerp tracking progress.
+          // maxSpeed = 0.06 limits catching up to ~2.5x normal speed, avoiding Mach-speed teleports.
+          const maxSpeed = 0.06;
+          
+          // baseSpeed = 0.0035 (approx 15-20% of normal speed) prevents complete stops during active races
+          let baseSpeed = 0;
+          if (this.liveRace!.status === 'live' && horse.cumulativeProgress < this.totalLaps) {
+            baseSpeed = 0.0035;
+          }
+          
+          const maxStep = maxSpeed * delta;
+          const baseStep = baseSpeed * delta;
+          const lerpStep = diff * delta * 2.5;
+          
+          const progressStep = Math.max(baseStep, Math.min(maxStep, lerpStep));
+          
+          horse.cumulativeProgress += progressStep;
+          horse.progress = horse.cumulativeProgress % 1.0;
+          
+          // Effective speed (progress per second) matches visual stride
+          horse.speed = progressStep / delta;
+        }
+      });
+    }
+
     const railLaneOffset = this.getLaneCenterOffset(0);
     const outsideLaneOffset = this.getLaneCenterOffset(TRACK_LANE_COUNT - 1);
 
     this.horses.forEach((horseA) => {
       let targetOffset = railLaneOffset;
 
-      this.horses.forEach((horseB) => {
-        if (horseA === horseB) return;
+      const shouldBeInStartingLane = this.liveRace 
+        ? (this.liveRace.status === 'pending' || horseA.cumulativeProgress >= (this.totalLaps - 0.15) || this.liveRace.status === 'finished')
+        : false;
 
-        let diff = horseB.progress - horseA.progress;
-        diff -= Math.round(diff);
+      if (shouldBeInStartingLane) {
+        // Return to starting lane layout
+        targetOffset = this.getLaneCenterOffset(horseA.index);
+      } else {
+        this.horses.forEach((horseB) => {
+          if (horseA === horseB) return;
 
-        const isAhead = diff > 0 && diff <= HORSE_LOOK_AHEAD_PROGRESS;
-        const isSideBySideInside =
-          diff >= -HORSE_SIDE_BY_SIDE_PROGRESS &&
-          diff <= 0 &&
-          horseB.laneOffset > horseA.laneOffset + HORSE_SIDE_BY_SIDE_MIN_LANE_DIFF;
+          let diff = horseB.progress - horseA.progress;
+          diff -= Math.round(diff);
 
-        if (!isAhead && !isSideBySideInside) return;
+          const isAhead = diff > 0 && diff <= HORSE_LOOK_AHEAD_PROGRESS;
+          const isSideBySideInside =
+            diff >= -HORSE_SIDE_BY_SIDE_PROGRESS &&
+            diff <= 0 &&
+            horseB.laneOffset > horseA.laneOffset + HORSE_SIDE_BY_SIDE_MIN_LANE_DIFF;
 
-        // If B is ahead, it only blocks us if we are faster (catching up) and B is in our way
-        if (isAhead) {
-          if (horseA.speed <= horseB.speed) return;
+          if (!isAhead && !isSideBySideInside) return;
 
-          const isBInsideOrSameLane = horseB.laneOffset > horseA.laneOffset - 1.33;
-          if (!isBInsideOrSameLane) return;
-        }
+          // If B is ahead, it only blocks us if we are faster (catching up) and B is in our way
+          if (isAhead) {
+            if (horseA.speed <= horseB.speed) return;
 
-        targetOffset = Math.min(targetOffset, horseB.laneOffset - HORSE_OVERTAKE_LANE_STEP);
-      });
+            const isBInsideOrSameLane = horseB.laneOffset > horseA.laneOffset - 1.33;
+            if (!isBInsideOrSameLane) return;
+          }
+
+          targetOffset = Math.min(targetOffset, horseB.laneOffset - HORSE_OVERTAKE_LANE_STEP);
+        });
+      }
 
       horseA.targetLaneOffset = THREE.MathUtils.clamp(targetOffset, outsideLaneOffset, railLaneOffset);
     });

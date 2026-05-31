@@ -1,12 +1,21 @@
 import * as THREE from 'three';
 import { Person } from './Person';
 
+export interface HorseColors {
+  body: string;
+  mane: string;
+  tail: string;
+  saddle: string;
+}
+
 export interface HorseConfig {
   color: number;
   index: number;
   laneOffset: number;
   initialProgress: number;
   speed: number;
+  name?: string;
+  colors?: HorseColors;
 }
 
 export class Horse {
@@ -40,6 +49,12 @@ export class Horse {
   public progress: number;
   public cumulativeProgress: number;
   public phase: number;
+  
+  public name: string;
+  private bodyMaterial!: THREE.MeshStandardMaterial;
+  private saddleMaterial!: THREE.MeshStandardMaterial;
+  private maneMaterial!: THREE.MeshStandardMaterial;
+  private tailMaterial!: THREE.MeshStandardMaterial;
 
   constructor(config: HorseConfig) {
     this.index = config.index;
@@ -48,21 +63,31 @@ export class Horse {
     this.initialLaneOffset = config.laneOffset;
     this.targetLaneOffset = config.laneOffset;
     this.initialProgress = config.initialProgress;
+    this.name = config.name || `Horse ${config.index + 1}`;
 
     this.progress = this.initialProgress;
     this.cumulativeProgress = this.initialProgress;
     this.phase = this.index * 0.7;
 
     this.group = new THREE.Group();
-    this.buildModel(config.color);
+    this.buildModel(config.color, config.colors);
   }
 
-  private buildModel(color: number) {
-    const bodyMaterial = new THREE.MeshStandardMaterial({ color, roughness: 0.72 });
-    const clothMaterial = new THREE.MeshStandardMaterial({
-      color: [0xd84d38, 0x2d7dd2, 0xe7c948, 0x54a66d, 0x8b5bd6, 0xf47a30][this.index % 6],
-      roughness: 0.5,
-    });
+  private buildModel(color: number, colors?: HorseColors) {
+    const defaultSaddleHex = [0xd84d38, 0x2d7dd2, 0xe7c948, 0x54a66d, 0x8b5bd6, 0xf47a30][this.index % 6];
+
+    const bodyHex = colors ? colors.body : color;
+    const saddleHex = colors ? colors.saddle : defaultSaddleHex;
+    const maneHex = colors ? colors.mane : '#16110d';
+    const tailHex = colors ? colors.tail : '#16110d';
+
+    this.bodyMaterial = new THREE.MeshStandardMaterial({ color: bodyHex, roughness: 0.72 });
+    this.saddleMaterial = new THREE.MeshStandardMaterial({ color: saddleHex, roughness: 0.5 });
+    this.maneMaterial = new THREE.MeshStandardMaterial({ color: maneHex, roughness: 0.8 });
+    this.tailMaterial = new THREE.MeshStandardMaterial({ color: tailHex, roughness: 0.8 });
+
+    const bodyMaterial = this.bodyMaterial;
+    const clothMaterial = this.saddleMaterial;
     const darkMaterial = new THREE.MeshStandardMaterial({ color: 0x16110d, roughness: 0.8 });
     const whiteMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 });
 
@@ -126,24 +151,24 @@ export class Horse {
     }
 
     // Mane
-    const mane1 = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.5, 0.18), darkMaterial);
+    const mane1 = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.5, 0.18), this.maneMaterial);
     mane1.position.set(1.65, 2.65, 0);
     mane1.castShadow = true;
     this.group.add(mane1);
 
-    const mane2 = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.25, 0.14), darkMaterial);
+    const mane2 = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.25, 0.14), this.maneMaterial);
     mane2.position.set(1.25, 2.15, 0);
     mane2.castShadow = true;
     this.group.add(mane2);
 
     // Multi-part Tail (Rotated to point backward and down to flow with the horse's motion)
-    const upperTail = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.75, 0.12), darkMaterial);
+    const upperTail = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.75, 0.12), this.tailMaterial);
     upperTail.position.set(-1.6, 1.6, 0);
     upperTail.rotation.z = -0.65; // Negative Z rotation to tilt backward
     upperTail.castShadow = true;
     this.group.add(upperTail);
 
-    const lowerTail = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.85, 0.08), darkMaterial);
+    const lowerTail = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.85, 0.08), this.tailMaterial);
     lowerTail.position.set(-2.05, 1.0, 0); // Positioned to connect smoothly
     lowerTail.rotation.z = -0.95; // Tilts further backward
     lowerTail.castShadow = true;
@@ -162,7 +187,7 @@ export class Horse {
     this.group.add(saddle);
 
     // Jockey
-    const uniformColor = [0xd84d38, 0x2d7dd2, 0xe7c948, 0x54a66d, 0x8b5bd6, 0xf47a30][this.index % 6];
+    const uniformColor = typeof saddleHex === 'string' ? parseInt(saddleHex.replace('#', ''), 16) : saddleHex;
     this.jockey = new Person({
       clothColor: uniformColor,
       helmetColor: uniformColor,
@@ -297,7 +322,8 @@ export class Horse {
     const position = trackCurve.getPointAt(Math.max(0, this.progress));
     const tangent = trackCurve.getTangentAt(Math.max(0, this.progress)).normalize();
     this.normal.set(-tangent.z, 0, tangent.x).normalize();
-    const laneBob = Math.sin(this.phase) * 0.12;
+    const speedFactor = Math.min(1.0, this.speed / 0.015);
+    const laneBob = Math.sin(this.phase) * 0.12 * Math.max(0.15, speedFactor);
 
     this.group.position.copy(position).addScaledVector(this.normal, this.laneOffset);
     this.group.position.y = 0.628 + laneBob;
@@ -307,10 +333,10 @@ export class Horse {
 
     // Realistic desynchronized horse gallop gait:
     const swings = [
-      Math.sin(phaseAngle) * 0.5,           // Back-Left
-      Math.sin(phaseAngle - 0.5) * 0.5,     // Back-Right
-      -Math.sin(phaseAngle - 0.3) * 0.5,    // Front-Left
-      -Math.sin(phaseAngle - 0.8) * 0.5     // Front-Right
+      Math.sin(phaseAngle) * 0.5 * speedFactor,           // Back-Left
+      Math.sin(phaseAngle - 0.5) * 0.5 * speedFactor,     // Back-Right
+      -Math.sin(phaseAngle - 0.3) * 0.5 * speedFactor,    // Front-Left
+      -Math.sin(phaseAngle - 0.8) * 0.5 * speedFactor     // Front-Right
     ];
 
     this.pendingStrikes.length = 0;
@@ -342,11 +368,13 @@ export class Horse {
       this.prevSwings[i] = swing;
     }
 
-    const dynamicLean = -0.28 + Math.sin(phaseAngle) * 0.08;
-    // Set elbows to bent position to look like holding reins
+    // Scale oscillations by speedFactor, and default to resting posture when stopped
+    const targetLean = -0.15 + (-0.13 + Math.sin(phaseAngle) * 0.08) * speedFactor;
+    const targetHeadTilt = (0.15 - Math.sin(phaseAngle) * 0.04) * speedFactor;
+
     this.jockey.pose(
-      dynamicLean,
-      0.15 - Math.sin(phaseAngle) * 0.04,
+      targetLean,
+      targetHeadTilt,
       -0.6,
       -0.6,
       1.15,
@@ -391,5 +419,21 @@ export class Horse {
         }
       }
     });
+  }
+
+  public updateColors(colors: HorseColors) {
+    this.bodyMaterial.color.set(colors.body);
+    this.saddleMaterial.color.set(colors.saddle);
+    this.maneMaterial.color.set(colors.mane);
+    this.tailMaterial.color.set(colors.tail);
+    this.jockey.updateColors(colors.saddle);
+    if (this.hoverRing && this.hoverRing.material) {
+      (this.hoverRing.material as THREE.MeshBasicMaterial).color.set(colors.saddle);
+    }
+  }
+
+  public getSaddleColorHex(): string {
+    const col = this.saddleMaterial.color;
+    return `#${col.getHexString()}`;
   }
 }
