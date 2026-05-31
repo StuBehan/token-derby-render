@@ -359,7 +359,7 @@ select:hover {
   top: 20px;
   left: 20px;
   bottom: 20px;
-  width: 320px;
+  width: 380px;
   background: rgba(16, 20, 15, 0.82);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 12px;
@@ -497,7 +497,7 @@ select:hover {
 }
 
 .leaderboard-table th {
-  text-align: left;
+  text-align: center;
   padding-bottom: 8px;
   color: rgba(255, 255, 255, 0.4);
   font-weight: 500;
@@ -525,16 +525,25 @@ select:hover {
   gap: 8px;
 }
 
+.horse-names-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+}
+
 .horse-display-name {
   font-weight: 600;
+  line-height: 1.2;
 }
 
 .user-display-name {
   font-size: 0.7rem;
   color: rgba(255, 255, 255, 0.4);
+  line-height: 1;
 }
 
-.col-tokens {
+td.col-tokens {
   text-align: right;
 }
 
@@ -603,4 +612,122 @@ select:hover {
     bottom: 14px;
     width: auto;
   }
+}
+
+/* Achievement Toast Notifications */
+.achievement-toasts-container {
+  position: absolute;
+  bottom: 24px;
+  right: 24px;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 320px;
+  pointer-events: none;
+}
+
+.achievement-toast-card {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(18, 18, 22, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-left-width: 5px;
+  border-left-style: solid;
+  border-radius: 8px;
+  padding: 12px 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(12px);
+  width: 100%;
+}
+
+.toast-xp-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: monospace;
+  font-weight: 700;
+  font-size: 0.8rem;
+  color: #ffffff;
+  padding: 4px 8px;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  flex-shrink: 0;
+}
+
+.toast-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.toast-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0;
+}
+
+.toast-desc {
+  font-size: 0.76rem;
+  color: #a0a0b0;
+  margin: 0;
+}
+
+/* Leaderboard XP formatting */
+td.col-xp,
+td.col-xp-gain {
+  text-align: right;
+  padding-left: 10px;
+}
+
+.zero-xp-gain {
+  color: rgba(255, 255, 255, 0.2);
+  font-size: 0.8rem;
+}
+
+.live-xp-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #2ecc71;
+  background: rgba(46, 204, 113, 0.15);
+  border: 1px solid rgba(46, 204, 113, 0.3);
+  border-radius: 3px;
+  padding: 0 4px;
+  margin-left: 6px;
+  vertical-align: middle;
+  animation: pulseXp 2s infinite alternate;
+}
+
+@keyframes pulseXp {
+  from {
+    box-shadow: 0 0 2px rgba(46, 204, 113, 0.2);
+  }
+  to {
+    box-shadow: 0 0 8px rgba(46, 204, 113, 0.6);
+  }
+}
+
+/* Vue Transition-group classes */
+.toast-fade-enter-active,
+.toast-fade-leave-active {
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.toast-fade-enter-from {
+  opacity: 0;
+  transform: translateY(30px) scale(0.85);
+}
+
+.toast-fade-leave-to {
+  opacity: 0;
+  transform: translateX(100px);
+}
+
+.toast-fade-leave-active {
+  position: absolute;
 }

@@ -52,6 +52,14 @@ export class DerbyScene {
   private readonly trackCurve: THREE.CatmullRomCurve3;
   private readonly horses: Horse[] = [];
   private readonly pressedKeys = new Set<string>();
+  private readonly activeEffects: {
+    sprite: THREE.Sprite;
+    material: THREE.SpriteMaterial;
+    texture: THREE.CanvasTexture;
+    age: number;
+    duration: number;
+    horse: Horse;
+  }[] = [];
   
   // Skyline and weather components
   private skyline!: LondonSkyline;
@@ -209,7 +217,105 @@ export class DerbyScene {
     this.addHorses();
   }
 
+  public spawnAchievementEffect(horseName: string, colorHex: string, achievementName: string, xp: number = 3) {
+    const horse = this.horses.find(h => h.name.toLowerCase() === horseName.toLowerCase());
+    if (!horse) return;
+
+    // Create canvas and draw details
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d')!;
+
+    // Draw background bubble with rounded corners
+    ctx.fillStyle = 'rgba(15, 15, 20, 0.85)';
+    ctx.strokeStyle = colorHex;
+    ctx.lineWidth = 4;
+
+    const x = 10;
+    const y = 10;
+    const w = canvas.width - 20;
+    const h = canvas.height - 20;
+    const r = 20; // corner radius
+
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Draw achievement badge/icon background
+    ctx.fillStyle = colorHex;
+    ctx.beginPath();
+    ctx.arc(60, canvas.height / 2, 35, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Write XP inside the badge
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 24px "Outfit", "Inter", "Arial", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`+${xp}`, 60, canvas.height / 2);
+
+    // Write achievement title
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 32px "Outfit", "Inter", "Arial", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(achievementName, 120, 48);
+
+    // Write a subtext or description
+    ctx.fillStyle = '#a0a0b0';
+    ctx.font = '20px "Outfit", "Inter", "Arial", sans-serif';
+    ctx.fillText(`Achievement gained!`, 120, 88);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+
+    const material = new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true,
+      depthWrite: false,
+      depthTest: true
+    });
+
+    const sprite = new THREE.Sprite(material);
+    // Aspect ratio is 4:1 (512:128)
+    sprite.scale.set(5.0, 1.25, 1.0);
+    sprite.position.set(0, 3.5, 0); // start slightly above the horse
+
+    horse.group.add(sprite);
+
+    this.activeEffects.push({
+      sprite,
+      material,
+      texture,
+      age: 0,
+      duration: 3.0, // 3 seconds animation
+      horse
+    });
+  }
+
   private clearHorses() {
+    this.activeEffects.forEach((effect) => {
+      try {
+        effect.horse.group.remove(effect.sprite);
+        effect.texture.dispose();
+        effect.material.dispose();
+      } catch (e) {
+        // ignore
+      }
+    });
+    this.activeEffects.length = 0;
+
     this.horses.forEach((h) => {
       this.scene.remove(h.group);
     });
@@ -1137,6 +1243,31 @@ export class DerbyScene {
       this.updateParticles(delta);
     }
 
+    // Update active achievement sprite effects
+    for (let i = this.activeEffects.length - 1; i >= 0; i--) {
+      const effect = this.activeEffects[i];
+      effect.age += delta;
+      const progress = effect.age / effect.duration;
+      if (progress >= 1.0) {
+        try {
+          effect.horse.group.remove(effect.sprite);
+          effect.texture.dispose();
+          effect.material.dispose();
+        } catch (e) {
+          // ignore
+        }
+        this.activeEffects.splice(i, 1);
+      } else {
+        // Float up
+        effect.sprite.position.y = 3.5 + progress * 2.5;
+        // Fade out
+        effect.material.opacity = Math.max(0, 1.0 - progress);
+        // Slightly scale up
+        const scale = 5.0 * (1.0 + progress * 0.15);
+        effect.sprite.scale.set(scale, scale * 0.25, 1.0);
+      }
+    }
+
     if (this.grandstand) {
       const sortedHorses = [...this.horses].sort((a, b) => b.cumulativeProgress - a.cumulativeProgress);
       const leaderName = sortedHorses[0] ? this.getHorseName(sortedHorses[0].index) : 'NONE';
@@ -1282,17 +1413,26 @@ export class DerbyScene {
             baseSpeed = 0.0035;
           }
           
-          const maxStep = maxSpeed * delta;
-          const baseStep = baseSpeed * delta;
-          const lerpStep = diff * delta * 2.5;
+          // Target desired speed based on remaining distance to cover (catch-up over ~1.2 seconds)
+          const desiredSpeed = Math.max(baseSpeed, Math.min(maxSpeed, diff / 1.2));
           
-          const progressStep = Math.max(baseStep, Math.min(maxStep, lerpStep));
+          // Smoothly accelerate or decelerate towards desired speed to prevent visual jerking
+          const currentSpeed = horse.speed || 0;
+          const speedDiff = desiredSpeed - currentSpeed;
+          
+          // Apply realistic rate limits for speed changes
+          const maxAccel = 0.035; // speed units/sec increase per second
+          const maxDecel = 0.055; // speed units/sec decrease per second (braking is slightly faster)
+          const limit = speedDiff > 0 ? maxAccel * delta : maxDecel * delta;
+          
+          const nextSpeed = currentSpeed + Math.max(-limit, Math.min(limit, speedDiff));
+          const progressStep = nextSpeed * delta;
           
           horse.cumulativeProgress += progressStep;
           horse.progress = horse.cumulativeProgress % 1.0;
           
-          // Effective speed (progress per second) matches visual stride
-          horse.speed = progressStep / delta;
+          // Effective speed matches current step progress
+          horse.speed = nextSpeed;
         }
       });
     }

@@ -20,6 +20,81 @@ const joinedRace = ref<RaceView | null>(null);
 const isPolling = ref(false);
 const errorMessage = ref('');
 const raceClient = new RaceClient();
+const timeLeftSeconds = ref(0);
+let countdownInterval: number | null = null;
+
+// Achievement toast structures
+interface ActiveToast {
+  id: string;
+  horseName: string;
+  colorHex: string;
+  achievementName: string;
+  description: string;
+  xp: number;
+}
+
+const activeToasts = ref<ActiveToast[]>([]);
+const lastSeenEventTimes = new Map<string, number>();
+
+const ACHIEVEMENT_DESCRIPTIONS: Record<string, string> = {
+  'Racer!': 'Raced continuously for an hour',
+  'Overtake!': 'Overtook another horse',
+  'Pacesetter!': 'Led the race for an hour straight',
+  'Stampede!': 'Gained 7,000+ tokens in a single minute',
+  'Took the lead!': 'Charged into first place',
+  'Comeback!': 'Climbed from last place to the top half',
+  'Pulled Away!': 'Grew the lead by 5,000+ tokens in a minute',
+};
+
+function getAchievementDescription(name: string, xp: number): string {
+  if (name === 'Overtake!') {
+    const climbed = Math.floor(xp / 3);
+    if (climbed <= 1) return 'Overtook another horse';
+    return `Overtook ${climbed} horses`;
+  }
+  return ACHIEVEMENT_DESCRIPTIONS[name] || 'Gained an achievement';
+}
+
+let toastIdCounter = 0;
+function addToast(horseName: string, colorHex: string, achievementName: string, xp: number) {
+  const id = `toast-${toastIdCounter++}`;
+  const description = getAchievementDescription(achievementName, xp);
+  const toast: ActiveToast = {
+    id,
+    horseName,
+    colorHex,
+    achievementName,
+    description,
+    xp
+  };
+  activeToasts.value.push(toast);
+  
+  setTimeout(() => {
+    activeToasts.value = activeToasts.value.filter(t => t.id !== id);
+  }, 6000);
+}
+
+function processAchievements(race: RaceView) {
+  for (const horse of race.horses) {
+    if (!horse.recent_events) continue;
+    
+    const watermark = lastSeenEventTimes.get(horse.horse_id) ?? 0;
+    const freshEvents = horse.recent_events.filter(e => e.at > watermark);
+    
+    if (freshEvents.length > 0) {
+      const maxAt = Math.max(...freshEvents.map(e => e.at));
+      lastSeenEventTimes.set(horse.horse_id, maxAt);
+      
+      for (const ev of freshEvents) {
+        // Trigger 3D floating text effect
+        derbyScene?.spawnAchievementEffect(horse.name, horse.colors.saddle, ev.name, ev.xp);
+        
+        // Trigger HTML UI toast
+        addToast(horse.name, horse.colors.saddle, ev.name, ev.xp);
+      }
+    }
+  }
+}
 
 function deselectHorse() {
   if (derbyScene) {
@@ -50,8 +125,10 @@ onMounted(() => {
   // Wire API update listeners
   raceClient.onRaceUpdate = (race) => {
     joinedRace.value = race;
+    timeLeftSeconds.value = race.time_left_seconds;
     derbyScene?.updateLiveRace(race);
     isPolling.value = false;
+    processAchievements(race);
   };
 
   raceClient.onRaceError = (err) => {
@@ -60,10 +137,22 @@ onMounted(() => {
   };
 
   derbyScene.start();
+
+  countdownInterval = window.setInterval(() => {
+    if (joinedRace.value && joinedRace.value.status === 'live') {
+      if (timeLeftSeconds.value > 0) {
+        timeLeftSeconds.value--;
+      }
+    }
+  }, 1000);
 });
 
 onBeforeUnmount(() => {
   raceClient.stopPolling();
+  if (countdownInterval !== null) {
+    window.clearInterval(countdownInterval);
+    countdownInterval = null;
+  }
   derbyScene?.dispose();
   derbyScene = null;
 });
@@ -82,7 +171,17 @@ async function joinRace() {
     const initialRace = await raceClient.fetchOnce();
     if (initialRace) {
       joinedRace.value = initialRace;
+      timeLeftSeconds.value = initialRace.time_left_seconds;
       derbyScene?.updateLiveRace(initialRace);
+      
+      // Seed watermark with existing events when joining so we don't spam historical alerts
+      for (const horse of initialRace.horses) {
+        if (horse.recent_events && horse.recent_events.length > 0) {
+          const maxAt = Math.max(...horse.recent_events.map(e => e.at));
+          lastSeenEventTimes.set(horse.horse_id, maxAt);
+        }
+      }
+      
       raceClient.startPolling(2000);
     } else {
       errorMessage.value = 'Race not found.';
@@ -97,8 +196,11 @@ async function joinRace() {
 function leaveRace() {
   raceClient.stopPolling();
   joinedRace.value = null;
+  timeLeftSeconds.value = 0;
   isPolling.value = false;
   errorMessage.value = '';
+  lastSeenEventTimes.clear();
+  activeToasts.value = [];
   derbyScene?.clearLiveRace();
 }
 
@@ -138,10 +240,11 @@ const sortedLiveHorses = computed(() => {
 });
 
 function formatTimeLeft(seconds: number) {
-  if (seconds <= 0) return '00:00';
-  const mins = Math.floor(seconds / 60);
+  if (seconds <= 0) return '00:00:00';
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
   const secs = seconds % 60;
-  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
 </script>
 
@@ -195,7 +298,7 @@ function formatTimeLeft(seconds: number) {
         <div class="panel-body">
           <div class="time-left-display">
             <span class="time-label">Time Remaining:</span>
-            <span class="time-val font-mono">{{ formatTimeLeft(joinedRace.time_left_seconds) }}</span>
+            <span class="time-val font-mono">{{ formatTimeLeft(timeLeftSeconds) }}</span>
           </div>
 
           <div class="leaderboard-container">
@@ -209,6 +312,8 @@ function formatTimeLeft(seconds: number) {
                   <th class="col-rank">Pos</th>
                   <th class="col-name">Horse / Jockey</th>
                   <th class="col-tokens">Tokens</th>
+                  <th class="col-xp">XP</th>
+                  <th class="col-xp-gain">Gain</th>
                 </tr>
               </thead>
               <tbody>
@@ -220,10 +325,17 @@ function formatTimeLeft(seconds: number) {
                   <td class="col-rank font-mono">{{ horse.rank }}</td>
                   <td class="col-name">
                     <span class="color-dot" :style="{ backgroundColor: horse.colors.saddle }"></span>
-                    <span class="horse-display-name">{{ horse.name }}</span>
-                    <span class="user-display-name">by {{ horse.user_name }}</span>
+                    <div class="horse-names-wrapper">
+                      <span class="horse-display-name">{{ horse.name }}</span>
+                      <span class="user-display-name">by {{ horse.user_name }}</span>
+                    </div>
                   </td>
                   <td class="col-tokens font-mono">{{ horse.current_tokens.toLocaleString() }}</td>
+                  <td class="col-xp font-mono">{{ (horse.xp + (horse.live_xp || 0)).toLocaleString() }}</td>
+                  <td class="col-xp-gain font-mono">
+                    <span v-if="horse.live_xp" class="live-xp-badge">+{{ horse.live_xp }}</span>
+                    <span v-else class="zero-xp-gain">-</span>
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -231,6 +343,26 @@ function formatTimeLeft(seconds: number) {
         </div>
 
         <button type="button" class="leave-btn" @click="leaveRace">Leave Live Race</button>
+      </div>
+
+      <!-- Achievement Toasts Container -->
+      <div class="achievement-toasts-container" aria-live="polite">
+        <transition-group name="toast-fade">
+          <div 
+            v-for="toast in activeToasts" 
+            :key="toast.id" 
+            class="achievement-toast-card"
+            :style="{ borderLeftColor: toast.colorHex }"
+          >
+            <div class="toast-xp-badge" :style="{ backgroundColor: toast.colorHex }">
+              +{{ toast.xp }} XP
+            </div>
+            <div class="toast-content">
+              <h4 class="toast-title">{{ toast.horseName }}</h4>
+              <p class="toast-desc">Gained: <b>{{ toast.achievementName }}</b> - {{ toast.description }}</p>
+            </div>
+          </div>
+        </transition-group>
       </div>
 
       <div class="race-hud">

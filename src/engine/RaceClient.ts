@@ -1,3 +1,18 @@
+export type AchievementName =
+  | 'Racer!'
+  | 'Overtake!'
+  | 'Pacesetter!'
+  | 'Stampede!'
+  | 'Took the lead!'
+  | 'Comeback!'
+  | 'Pulled Away!';
+
+export interface RecentEvent {
+  at: number;
+  name: AchievementName;
+  xp: number;
+}
+
 export interface HorseColors {
   body: string;
   mane: string;
@@ -14,6 +29,7 @@ export interface HorseView {
   xp: number;
   live_xp?: number;
   rank: number;
+  recent_events?: RecentEvent[];
 }
 
 export interface RaceView {
@@ -154,6 +170,25 @@ export class RaceClient {
     const names = ["Glinting Gold", "Blue Bullet", "Crimson Comet", "Green Gale", "Purple Pegasus", "Orange Outlaw"];
     const users = ["Alice", "Bob", "Charlie", "David", "Eva", "Frank"];
 
+    const mockEvents: Record<number, { atOffset: number; name: AchievementName; xp: number }[]> = {
+      2: [ // Crimson Comet
+        { atOffset: 8000, name: 'Took the lead!', xp: 5 }
+      ],
+      0: [ // Glinting Gold
+        { atOffset: 25000, name: 'Racer!', xp: 1 }
+      ],
+      3: [ // Green Gale
+        { atOffset: 45000, name: 'Stampede!', xp: 2 }
+      ],
+      1: [ // Blue Bullet
+        { atOffset: 70000, name: 'Overtake!', xp: 3 }
+      ],
+      5: [ // Orange Outlaw
+        { atOffset: 95000, name: 'Comeback!', xp: 5 },
+        { atOffset: 110000, name: 'Pulled Away!', xp: 3 }
+      ]
+    };
+
     const horses: HorseView[] = names.map((name, index) => {
       let tokens = 0;
       if (status === 'live' || status === 'finished') {
@@ -179,6 +214,23 @@ export class RaceClient {
         }
       }
 
+      const eventsForHorse = mockEvents[index] || [];
+      const recent_events: RecentEvent[] = [];
+      let live_xp = 0;
+      for (const ev of eventsForHorse) {
+        const evTime = startTime + ev.atOffset;
+        if (now >= evTime) {
+          live_xp += ev.xp;
+          if (now - evTime <= 90000) {
+            recent_events.push({
+              at: evTime,
+              name: ev.name,
+              xp: ev.xp
+            });
+          }
+        }
+      }
+
       return {
         horse_id: `mock-horse-${index}`,
         name,
@@ -186,7 +238,9 @@ export class RaceClient {
         current_tokens: tokens,
         user_name: users[index],
         xp: 1500 + index * 100,
-        rank: index + 1
+        live_xp,
+        rank: index + 1,
+        recent_events
       };
     });
 
