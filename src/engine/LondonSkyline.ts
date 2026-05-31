@@ -47,7 +47,6 @@ function flushMesh(
 
 export class LondonSkyline extends THREE.Group {
   private londonEyeWheel?: THREE.Group;
-  private counterRotGroup?: THREE.Group;
   private londonEyeCapsules: THREE.Group[] = [];
 
   // Warning Lights Beacons
@@ -196,94 +195,81 @@ export class LondonSkyline extends THREE.Group {
       this.warningLights.push(eyeLight);
     }
 
-    // 32 gondolas — each is a Group (needs individual rotation compensation).
+    // 16 gondolas — each pivots from a bearing ring at the rim and HANGS below it.
     // The mount pins (wheel-space) are ALL merged into a single mesh after the loop.
-    // All gondola Groups live inside a counterRotGroup that counter-rotates in update(),
-    // keeping every gondola upright with a single rotation assignment instead of 32.
+    // Each gondola is a child of the rotating wheel (so it orbits) and is counter-
+    // rotated individually in update(), keeping the pod hanging straight down through
+    // the full rotation.
     this.londonEyeCapsules = [];
-    const capsuleCount = 32;
+    const capsuleCount = 16;
 
-    const cabinMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
+    // Glass pod material (transparent, laminated-glass look)
+    const glassMat = new THREE.MeshStandardMaterial({
+      color: 0xeaf2f6,
       roughness: 0.1,
       metalness: 0.9,
       transparent: true,
-      opacity: 0.75,
-    });
-    const floorMat = new THREE.MeshStandardMaterial({
-      color: 0x3a484d,
-      roughness: 0.8,
+      opacity: 0.7,
     });
 
-    // Shared base geometries for gondola ironwork
+    // How far the pod hangs below its pivot ring (local -Y).
+    const POD_DROP = 0.95;
+
+    // Shared base geometries for gondola ironwork + pod shell
     const mountPinBaseGeom = new THREE.BoxGeometry(0.2, 1.3, 0.4);
-    const outerTorusBaseGeom = new THREE.TorusGeometry(0.44, 0.07, 4, 12);
-    const spindleBaseGeom = new THREE.CylinderGeometry(0.1, 0.1, 0.3, 6);
-    const cabinBaseGeom = new THREE.CapsuleGeometry(0.38, 0.9, 4, 8);
-    const floorBaseGeom = new THREE.BoxGeometry(0.68, 0.05, 1.5);
+    const bearingRingBaseGeom = new THREE.TorusGeometry(0.5, 0.06, 4, 16);
+    const hangerArmBaseGeom = new THREE.BoxGeometry(0.06, POD_DROP, 0.06);
+    // Single ovoid pod — low detail, it's a background skyline element
+    const podBaseGeom = new THREE.SphereGeometry(0.5, 10, 8);
 
     // Accumulate all mount pin geometries (baked into wheel-local space) for single merged mesh
     const allMountPinGeoms: THREE.BufferGeometry[] = [];
-
-    // Counter-rotation wrapper: rotating this group the opposite of londonEyeWheel.rotation.z
-    // keeps all child gondolas upright with a single assignment per frame.
-    this.counterRotGroup = new THREE.Group();
-    this.londonEyeWheel.add(this.counterRotGroup);
-    this.londonEyeCapsules = this.counterRotGroup.children as THREE.Group[];
 
     for (let i = 0; i < capsuleCount; i++) {
       const angle = (i / capsuleCount) * Math.PI * 2;
       const mountX = Math.cos(angle) * 26.6;
       const mountY = Math.sin(angle) * 26.6;
-      const capX = Math.cos(angle) * 27.25;
-      const capY = Math.sin(angle) * 27.25;
+      // Pivot sits just outside the rim
+      const pivotX = Math.cos(angle) * 27.2;
+      const pivotY = Math.sin(angle) * 27.2;
 
-      // Mount pin → baked into wheel-local space, accumulated for later merge
+      // Mount pin → baked into wheel-local space (orbits with the rim), accumulated for merge
       bakeGeom(allMountPinGeoms, mountPinBaseGeom, mountX, mountY, 0, 0, 0, angle - Math.PI / 2);
 
-      // Gondola group — child of counterRotGroup so it inherits the bulk counter-rotation
+      // Gondola group — pivot at the rim. Counter-rotated each frame so local -Y = world
+      // down, letting the pod hang straight down for the full wheel rotation.
       const gondola = new THREE.Group();
-      gondola.position.set(capX, capY, 0);
+      gondola.position.set(pivotX, pivotY, 0);
 
-      // Gondola iron: torus + spindle merged into 1 mesh
+      // Ironwork: pivot bearing ring (in the wheel plane) + 2 hanger struts → merged into 1 mesh
       const gondolaIronGeoms: THREE.BufferGeometry[] = [];
-      gondolaIronGeoms.push(outerTorusBaseGeom.clone());
-      const spindleG = spindleBaseGeom.clone();
-      spindleG.applyMatrix4(
-        new THREE.Matrix4().compose(
-          new THREE.Vector3(0, -0.45, 0),
-          new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0)),
-          new THREE.Vector3(1, 1, 1),
-        ),
-      );
-      gondolaIronGeoms.push(spindleG);
+      gondolaIronGeoms.push(bearingRingBaseGeom.clone());
+      for (const sx of [-0.34, 0.34]) {
+        bakeGeom(gondolaIronGeoms, hangerArmBaseGeom, sx, -POD_DROP / 2, 0);
+      }
       const gondolaIronMesh = flushMesh(gondolaIronGeoms, skylineMaterial, true, false);
       if (gondolaIronMesh) gondola.add(gondolaIronMesh);
 
-      // Glass cabin (transparent — must stay separate)
-      const cabin = new THREE.Mesh(cabinBaseGeom.clone(), cabinMat);
-      cabin.rotation.x = Math.PI / 2;
-      cabin.castShadow = true;
-      gondola.add(cabin);
+      // Glass pod, hanging below the pivot — single ovoid (long axis along the axle, Z)
+      const pod = new THREE.Mesh(podBaseGeom.clone(), glassMat);
+      pod.position.y = -POD_DROP;
+      pod.scale.set(0.7, 0.6, 1.4);
+      pod.castShadow = true;
+      gondola.add(pod);
 
-      // Interior floor
-      const floor = new THREE.Mesh(floorBaseGeom.clone(), floorMat);
-      floor.position.y = -0.12;
-      gondola.add(floor);
-
-      this.counterRotGroup!.add(gondola);
+      this.londonEyeWheel.add(gondola);
+      this.londonEyeCapsules.push(gondola);
     }
 
-    // Flush all 32 mount pins into a single merged mesh on the wheel
+    // Flush all mount pins into a single merged mesh on the wheel
     const mountPinMesh = flushMesh(allMountPinGeoms, skylineMaterial, true, false);
     if (mountPinMesh) this.londonEyeWheel.add(mountPinMesh);
 
     // Dispose base gondola geometries
     mountPinBaseGeom.dispose();
-    outerTorusBaseGeom.dispose();
-    spindleBaseGeom.dispose();
-    cabinBaseGeom.dispose();
-    floorBaseGeom.dispose();
+    bearingRingBaseGeom.dispose();
+    hangerArmBaseGeom.dispose();
+    podBaseGeom.dispose();
 
     londonEye.add(this.londonEyeWheel);
     this.add(londonEye);
@@ -497,9 +483,10 @@ export class LondonSkyline extends THREE.Group {
     if (running && this.londonEyeWheel) {
       this.londonEyeWheel.rotation.z += delta * 0.03;
 
-      // Counter-rotate the wrapper group so all 32 gondolas stay upright in one assignment
-      if (this.counterRotGroup) {
-        this.counterRotGroup.rotation.z = -this.londonEyeWheel.rotation.z;
+      // Counter-rotate each gondola so its pod hangs straight down through the full rotation
+      const upright = -this.londonEyeWheel.rotation.z;
+      for (const gondola of this.londonEyeCapsules) {
+        gondola.rotation.z = upright;
       }
     }
 
