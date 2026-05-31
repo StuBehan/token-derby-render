@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createTexturedMaterial } from './Textures';
 
 // Warning light blink timing configuration (in seconds)
 const BLINK_PERIOD = 4.8;
@@ -306,6 +307,8 @@ export class LondonSkyline extends THREE.Group {
       { label: 'E', startX: 175, startZ: -150, dx: 0, dz: 1, normalX: 1, normalZ: 0, length: 300, facingY: Math.PI / 2 },
     ];
 
+    this.addHorizonGround();
+
     // Exclusion zones where named landmarks sit
     const exclusions = [
       { x: -110, z: -165, r: 20 },  // Big Ben
@@ -426,6 +429,52 @@ export class LondonSkyline extends THREE.Group {
           }
         }
       }
+    }
+  }
+
+  private addHorizonGround() {
+    const concreteMaterial = createTexturedMaterial('concrete', 0x85827a, 34, 8, {
+      roughness: 0.94,
+    });
+    const grassHalfWidth = 180;
+    const grassHalfDepth = 130;
+    const northOuterZ = -212;
+    const southOuterZ = 212;
+    const westOuterX = -232;
+    const eastOuterX = 232;
+    const slabs = [
+      {
+        width: eastOuterX - westOuterX,
+        depth: -grassHalfDepth - northOuterZ,
+        x: 0,
+        z: (northOuterZ - grassHalfDepth) / 2,
+      },
+      {
+        width: eastOuterX - westOuterX,
+        depth: southOuterZ - grassHalfDepth,
+        x: 0,
+        z: (southOuterZ + grassHalfDepth) / 2,
+      },
+      {
+        width: -grassHalfWidth - westOuterX,
+        depth: grassHalfDepth * 2,
+        x: (westOuterX - grassHalfWidth) / 2,
+        z: 0,
+      },
+      {
+        width: eastOuterX - grassHalfWidth,
+        depth: grassHalfDepth * 2,
+        x: (eastOuterX + grassHalfWidth) / 2,
+        z: 0,
+      },
+    ];
+
+    for (const slab of slabs) {
+      const ground = new THREE.Mesh(new THREE.PlaneGeometry(slab.width, slab.depth), concreteMaterial);
+      ground.rotation.x = -Math.PI / 2;
+      ground.position.set(slab.x, -0.01, slab.z);
+      ground.receiveShadow = true;
+      this.add(ground);
     }
   }
 

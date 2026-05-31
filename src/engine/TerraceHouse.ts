@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { getSurfaceTexture } from './Textures';
 
 export interface TerraceHouseConfig {
   /** The generation index used for procedural variance in height, width, colors, etc. */
@@ -59,7 +60,11 @@ export class TerraceHouse {
     // Define custom/procedural materials for this house instance
     const brickMat = brickMaterials[index % brickMaterials.length];
     const roofColor = [0x383532, 0x484542, 0x2a2826][index % 3];
-    const roofMat = new THREE.MeshStandardMaterial({ color: roofColor, roughness: 0.8 });
+    const roofMat = new THREE.MeshStandardMaterial({
+      color: roofColor,
+      map: getSurfaceTexture('slate', 5, 2),
+      roughness: 0.8,
+    });
     const doorColor = [0xb33927, 0x22558c, 0x20543a, 0xbf851a][index % 4];
     const doorMat = new THREE.MeshStandardMaterial({ color: doorColor, roughness: 0.48 });
 

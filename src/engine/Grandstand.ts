@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { InstancedCrowd } from './InstancedCrowd';
+import { createTexturedMaterial } from './Textures';
 
 export interface GrandstandConfig {
   /** Total width of the grandstand. Defaults to 70.4. */
@@ -39,11 +40,11 @@ export class Grandstand extends THREE.Group {
   }
 
   private build() {
-    const concreteMaterial = new THREE.MeshStandardMaterial({ color: 0x687079, roughness: 0.82 });
+    const concreteMaterial = createTexturedMaterial('concrete', 0x687079, 10, 4, { roughness: 0.82 });
     const shadowMaterial = new THREE.MeshStandardMaterial({ color: 0x252b31, roughness: 0.75 });
     const aisleMaterial = new THREE.MeshStandardMaterial({ color: 0xd8d2c5, roughness: 0.62 });
     const railMaterial = new THREE.MeshStandardMaterial({ color: 0xf4ead6, roughness: 0.48 });
-    const roofMaterial = new THREE.MeshStandardMaterial({ color: 0xd8d6cd, roughness: 0.42 });
+    const roofMaterial = createTexturedMaterial('roof', 0xd8d6cd, 9, 3, { roughness: 0.42 });
     const roofTrimMaterial = new THREE.MeshStandardMaterial({ color: 0x34414a, roughness: 0.55 });
     const endCapMaterial = new THREE.MeshStandardMaterial({
       color: 0x1b2227,

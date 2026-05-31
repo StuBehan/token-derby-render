@@ -8,6 +8,7 @@ import { LondonSkyline } from './LondonSkyline';
 import { Floodlights } from './Floodlights';
 import { FinishLine } from './FinishLine';
 import { WeatherManager, WeatherType, RainEffect, LightningEffect } from './Weather';
+import { createTexturedMaterial, getSurfaceTexture } from './Textures';
 import { RaceView, HorseColors, HorseView } from './RaceClient';
 
 type ParkPath = {
@@ -489,7 +490,7 @@ export class DerbyScene {
   private addGround() {
     const grass = new THREE.Mesh(
       new THREE.PlaneGeometry(360, 260),
-      new THREE.MeshStandardMaterial({ color: 0x4f7b3f, roughness: 0.95 }),
+      createTexturedMaterial('grass', 0x4f7b3f, 46, 34, { roughness: 0.95 }),
     );
     grass.rotation.x = -Math.PI / 2;
     grass.receiveShadow = true;
@@ -497,7 +498,7 @@ export class DerbyScene {
 
     const infield = new THREE.Mesh(
       new THREE.ShapeGeometry(this.createStadiumShape(TRACK_STRAIGHT_HALF_LENGTH, TRACK_INNER_RADIUS), 96),
-      new THREE.MeshStandardMaterial({ color: 0x6d934a, roughness: 0.9 }),
+      createTexturedMaterial('infield', 0x6d934a, 14, 14, { roughness: 0.9 }),
     );
     infield.rotation.x = -Math.PI / 2;
     infield.position.y = 0.02;
@@ -565,8 +566,8 @@ export class DerbyScene {
     this.scene.add(sky);
     this.skyMesh = sky;
 
-    const hillMaterial = new THREE.MeshStandardMaterial({ color: 0x637854, roughness: 1 });
-    const farHillMaterial = new THREE.MeshStandardMaterial({ color: 0x819071, roughness: 1 });
+    const hillMaterial = createTexturedMaterial('hill', 0x637854, 8, 3, { roughness: 1 });
+    const farHillMaterial = createTexturedMaterial('hill', 0x819071, 7, 3, { roughness: 1 });
 
     for (const hill of [
       { x: -96, z: -108, width: 92, height: 15, depth: 10, color: farHillMaterial },
@@ -586,9 +587,13 @@ export class DerbyScene {
     }
 
     const canopyMaterials = [0x2f4a2e, 0x41643a, 0x5d7446].map(
-      (color) => new THREE.MeshStandardMaterial({ color, roughness: 0.88 }),
+      (color) => new THREE.MeshStandardMaterial({
+        color,
+        map: getSurfaceTexture('leaves', 3, 3),
+        roughness: 0.88,
+      }),
     );
-    const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x483626, roughness: 0.88 });
+    const trunkMaterial = createTexturedMaterial('bark', 0x483626, 2, 6, { roughness: 0.88 });
 
     const trunkMatrices: THREE.Matrix4[] = [];
     const pineMatrices: THREE.Matrix4[][] = canopyMaterials.map(() => []);
@@ -737,11 +742,15 @@ export class DerbyScene {
   }
 
   private addLondonParkDetails() {
-    const pathMaterial = new THREE.MeshStandardMaterial({ color: 0xc9bda5, roughness: 0.96 });
+    const pathMaterial = createTexturedMaterial('path', 0xc9bda5, 38, 5, { roughness: 0.96 });
     const ironMaterial = new THREE.MeshStandardMaterial({ color: 0x111719, roughness: 0.55 });
     const stoneMaterial = new THREE.MeshStandardMaterial({ color: 0xa89478, roughness: 0.9 });
     const brickMaterials = [0x8d7462, 0x9a7d68, 0x74675d, 0x92705e].map(
-      (color) => new THREE.MeshStandardMaterial({ color, roughness: 0.86 }),
+      (color) => new THREE.MeshStandardMaterial({
+        color,
+        map: getSurfaceTexture('brick', 4, 5),
+        roughness: 0.86,
+      }),
     );
 
     for (const path of PARK_PATHS) {
@@ -1112,7 +1121,7 @@ export class DerbyScene {
 
     const track = new THREE.Mesh(
       new THREE.ShapeGeometry(trackShape, 128),
-      new THREE.MeshStandardMaterial({ color: 0xa46d3f, roughness: 0.98 }),
+      createTexturedMaterial('track', 0xa46d3f, 18, 18, { roughness: 0.98 }),
     );
     track.rotation.x = -Math.PI / 2;
     track.position.y = 0.04;
