@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { getSurfaceTexture } from './Textures';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 export interface TerraceHouseConfig {
   /** The generation index used for procedural variance in height, width, colors, etc. */
@@ -68,167 +69,138 @@ export class TerraceHouse {
     const doorColor = [0xb33927, 0x22558c, 0x20543a, 0xbf851a][index % 4];
     const doorMat = new THREE.MeshStandardMaterial({ color: doorColor, roughness: 0.48 });
 
-    // 1. House Main Body (Brick) - Background houses don't need to cast shadows (saves massive render cost)
-    const body = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), brickMat);
-    body.position.y = height / 2;
-    body.receiveShadow = true;
-    this.group.add(body);
+    const brickGeoms: THREE.BufferGeometry[] = [];
+    const roofGeoms: THREE.BufferGeometry[] = [];
+    const stoneGeoms: THREE.BufferGeometry[] = [];
+    const windowGeoms: THREE.BufferGeometry[] = [];
+    const doorGeoms: THREE.BufferGeometry[] = [];
+    const potGeoms: THREE.BufferGeometry[] = [];
 
-    // 2. Pitched Roof (Slate - sloped front and back panels)
-    const frontSlope = new THREE.Mesh(new THREE.BoxGeometry(width + 0.6, 0.15, depth * 0.58), roofMat);
-    frontSlope.position.set(0, height + 0.75, depth * 0.26);
-    frontSlope.rotation.x = 0.45;
-    this.group.add(frontSlope);
+    const _pos = new THREE.Vector3();
+    const _quat = new THREE.Quaternion();
+    const _scale = new THREE.Vector3(1, 1, 1);
+    const _euler = new THREE.Euler();
+    const _matrix = new THREE.Matrix4();
 
-    const backSlope = new THREE.Mesh(new THREE.BoxGeometry(width + 0.6, 0.15, depth * 0.58), roofMat);
-    backSlope.position.set(0, height + 0.75, -depth * 0.26);
-    backSlope.rotation.x = -0.45;
-    this.group.add(backSlope);
+    function addGeom(
+      list: THREE.BufferGeometry[],
+      geom: THREE.BufferGeometry,
+      x: number,
+      y: number,
+      z: number,
+      rx = 0,
+      ry = 0,
+      rz = 0,
+      sx = 1,
+      sy = 1,
+      sz = 1
+    ) {
+      const cloned = geom.clone();
+      _pos.set(x, y, z);
+      _euler.set(rx, ry, rz);
+      _quat.setFromEuler(_euler);
+      _scale.set(sx, sy, sz);
+      _matrix.compose(_pos, _quat, _scale);
+      cloned.applyMatrix4(_matrix);
+      list.push(cloned);
+    }
 
-    const ridge = new THREE.Mesh(new THREE.BoxGeometry(width + 0.7, 0.12, 0.12), sharedStoneMat);
-    ridge.position.set(0, height + 1.5, 0);
-    this.group.add(ridge);
+    // 1. House Main Body (Brick)
+    addGeom(brickGeoms, new THREE.BoxGeometry(width, height, depth), 0, height / 2, 0);
 
-    // Gable triangular end walls to fill side gaps under the sloped roof
+    // 2. Pitched Roof (Slate) & Ridge (Stone)
+    addGeom(roofGeoms, new THREE.BoxGeometry(width + 0.6, 0.15, depth * 0.58), 0, height + 0.75, depth * 0.26, 0.45, 0, 0);
+    addGeom(roofGeoms, new THREE.BoxGeometry(width + 0.6, 0.15, depth * 0.58), 0, height + 0.75, -depth * 0.26, -0.45, 0, 0);
+    addGeom(stoneGeoms, new THREE.BoxGeometry(width + 0.7, 0.12, 0.12), 0, height + 1.5, 0);
+
+    // Gable triangular end walls (Brick)
     const gableShape = new THREE.Shape();
     gableShape.moveTo(-depth / 2, 0);
     gableShape.lineTo(depth / 2, 0);
     gableShape.lineTo(0, 1.40);
     gableShape.closePath();
-
     const gableGeo = new THREE.ShapeGeometry(gableShape);
-    for (const side of [-1, 1]) {
-      const gable = new THREE.Mesh(gableGeo, brickMat);
-      gable.position.set(side * (width / 2 - 0.01), height, 0);
-      gable.rotation.y = side * Math.PI / 2;
-      gable.receiveShadow = true;
-      this.group.add(gable);
-    }
 
-    // 3. Chimney with Terracotta Pots
+    for (const side of [-1, 1]) {
+      addGeom(brickGeoms, gableGeo, side * (width / 2 - 0.01), height, 0, 0, side * Math.PI / 2, 0);
+    }
+    gableGeo.dispose();
+
+    // 3. Chimney (Brick), Cap (Stone), Pots (Pot)
     const chimneyX = width * 0.28;
     const chimneyY = height + 1.1;
     const chimneyZ = -depth * 0.2;
-    const chimney = new THREE.Mesh(chimneyGeom, brickMat);
-    chimney.position.set(chimneyX, chimneyY, chimneyZ);
-    this.group.add(chimney);
 
-    const chimneyCap = new THREE.Mesh(chimneyCapGeom, sharedStoneMat);
-    chimneyCap.position.set(chimneyX, chimneyY + 1.1, chimneyZ);
-    this.group.add(chimneyCap);
+    addGeom(brickGeoms, chimneyGeom, chimneyX, chimneyY, chimneyZ);
+    addGeom(stoneGeoms, chimneyCapGeom, chimneyX, chimneyY + 1.1, chimneyZ);
 
     for (const potX of [-0.25, 0.25]) {
-      const pot = new THREE.Mesh(potGeom, sharedPotMat);
-      pot.position.set(chimneyX + potX, chimneyY + 1.45, chimneyZ);
-      this.group.add(pot);
+      addGeom(potGeoms, potGeom, chimneyX + potX, chimneyY + 1.45, chimneyZ);
     }
 
-    // Layout configuration (offset hallway/door on left, living room parlor on right)
+    // Layout configuration
     const doorX = -width * 0.26;
     const parlorX = width * 0.26;
 
-    // 4. Entrance Door & Portico (Canopy with supports & steps)
-    const door = new THREE.Mesh(doorGeom, doorMat);
-    door.position.set(doorX, 1.45, depth / 2 + 0.05);
-    this.group.add(door);
-
-    const steps = new THREE.Mesh(stepsGeom, sharedStoneMat);
-    steps.position.set(doorX, 0.125, depth / 2 + 0.35);
-    steps.receiveShadow = true;
-    this.group.add(steps);
-
-    const canopy = new THREE.Mesh(canopyGeom, sharedStoneMat);
-    canopy.position.set(doorX, 2.9, depth / 2 + 0.4);
-    this.group.add(canopy);
+    // 4. Entrance Door (Door), Steps (Stone), Canopy (Stone), Posts (Stone)
+    addGeom(doorGeoms, doorGeom, doorX, 1.45, depth / 2 + 0.05);
+    addGeom(stoneGeoms, stepsGeom, doorX, 0.125, depth / 2 + 0.35);
+    addGeom(stoneGeoms, canopyGeom, doorX, 2.9, depth / 2 + 0.4);
 
     for (const side of [-1, 1]) {
-      const post = new THREE.Mesh(postGeom, sharedStoneMat);
-      post.position.set(doorX + side * 0.95, 1.45, depth / 2 + 0.72);
-      this.group.add(post);
+      addGeom(stoneGeoms, postGeom, doorX + side * 0.95, 1.45, depth / 2 + 0.72);
     }
 
     // 5. Victorian Ground Floor Bay Window
     const bayW = width * 0.36;
     const bayH = 3.1;
     const bayD = 0.8;
-    const bay = new THREE.Mesh(new THREE.BoxGeometry(bayW, bayH, bayD), brickMat);
-    bay.position.set(parlorX, bayH / 2, depth / 2 + bayD / 2);
-    this.group.add(bay);
 
-    const bayRoof = new THREE.Mesh(new THREE.BoxGeometry(bayW + 0.2, 0.18, bayD + 0.15), sharedStoneMat);
-    bayRoof.position.set(parlorX, bayH + 0.09, depth / 2 + bayD / 2);
-    this.group.add(bayRoof);
+    addGeom(brickGeoms, new THREE.BoxGeometry(bayW, bayH, bayD), parlorX, bayH / 2, depth / 2 + bayD / 2);
+    addGeom(stoneGeoms, new THREE.BoxGeometry(bayW + 0.2, 0.18, bayD + 0.15), parlorX, bayH + 0.09, depth / 2 + bayD / 2);
+    addGeom(stoneGeoms, new THREE.BoxGeometry(bayW * 0.72 + 0.14, 1.94, 0.03), parlorX, 1.6, depth / 2 + bayD + 0.015);
+    addGeom(windowGeoms, new THREE.BoxGeometry(bayW * 0.72, 1.8, 0.05), parlorX, 1.6, depth / 2 + bayD + 0.03);
 
-    // Front bay window frame
-    const frontFrame = new THREE.Mesh(new THREE.BoxGeometry(bayW * 0.72 + 0.14, 1.94, 0.03), sharedStoneMat);
-    frontFrame.position.set(parlorX, 1.6, depth / 2 + bayD + 0.015);
-    this.group.add(frontFrame);
-
-    // Bay window glass panes
-    const frontWin = new THREE.Mesh(new THREE.BoxGeometry(bayW * 0.72, 1.8, 0.05), sharedWindowMat);
-    frontWin.position.set(parlorX, 1.6, depth / 2 + bayD + 0.03);
-    this.group.add(frontWin);
-
-    // Front bay window grid (three-part sash bars)
     for (const offset of [-bayW * 0.18, bayW * 0.18]) {
-      const mullion = new THREE.Mesh(mullionGeom, sharedStoneMat);
-      mullion.position.set(parlorX + offset, 1.6, depth / 2 + bayD + 0.05);
-      this.group.add(mullion);
+      addGeom(stoneGeoms, mullionGeom, parlorX + offset, 1.6, depth / 2 + bayD + 0.05);
     }
-    const bayHBar = new THREE.Mesh(new THREE.BoxGeometry(bayW * 0.72, 0.10, 0.03), sharedStoneMat);
-    bayHBar.position.set(parlorX, 1.6, depth / 2 + bayD + 0.05);
-    this.group.add(bayHBar);
+    addGeom(stoneGeoms, new THREE.BoxGeometry(bayW * 0.72, 0.10, 0.03), parlorX, 1.6, depth / 2 + bayD + 0.05);
 
     for (const side of [-1, 1]) {
-      // Side bay window frame
-      const sideFrame = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.94, bayD * 0.65 + 0.14), sharedStoneMat);
-      sideFrame.position.set(parlorX + side * (bayW / 2 + 0.005), 1.6, depth / 2 + bayD / 2);
-      this.group.add(sideFrame);
-
-      const sideWin = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.8, bayD * 0.65), sharedWindowMat);
-      sideWin.position.set(parlorX + side * (bayW / 2 + 0.016), 1.6, depth / 2 + bayD / 2);
-      this.group.add(sideWin);
-
-      // Side window horizontal sash bar
-      const sideBar = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.10, bayD * 0.65), sharedStoneMat);
-      sideBar.position.set(parlorX + side * (bayW / 2 + 0.022), 1.6, depth / 2 + bayD / 2);
-      this.group.add(sideBar);
+      addGeom(stoneGeoms, new THREE.BoxGeometry(0.03, 1.94, bayD * 0.65 + 0.14), parlorX + side * (bayW / 2 + 0.005), 1.6, depth / 2 + bayD / 2);
+      addGeom(windowGeoms, new THREE.BoxGeometry(0.05, 1.8, bayD * 0.65), parlorX + side * (bayW / 2 + 0.016), 1.6, depth / 2 + bayD / 2);
+      addGeom(stoneGeoms, new THREE.BoxGeometry(0.06, 0.10, bayD * 0.65), parlorX + side * (bayW / 2 + 0.022), 1.6, depth / 2 + bayD / 2);
     }
 
-    // 6. Upper Floor Windows (with stone lintels and sills)
+    // 6. Upper Floor Windows (Stone & Window)
     for (let f = 1; f < floorCount; f++) {
       const winY = f * floorHeight + 1.7;
 
       for (const winX of [doorX, parlorX]) {
-        // Window Frame
-        const frame = new THREE.Mesh(winFrameGeom, sharedStoneMat);
-        frame.position.set(winX, winY, depth / 2 + 0.03);
-        this.group.add(frame);
-
-        // Window pane (glass)
-        const win = new THREE.Mesh(winPaneGeom, sharedWindowMat);
-        win.position.set(winX, winY, depth / 2 + 0.06);
-        this.group.add(win);
-
-        // Window grid (sash bars)
-        const vBar = new THREE.Mesh(winVBarGeom, sharedStoneMat);
-        vBar.position.set(winX, winY, depth / 2 + 0.09);
-        this.group.add(vBar);
-
-        const hBar = new THREE.Mesh(winHBarGeom, sharedStoneMat);
-        hBar.position.set(winX, winY, depth / 2 + 0.09);
-        this.group.add(hBar);
-
-        // Stone Sill (bottom ledge)
-        const sill = new THREE.Mesh(winSillGeom, sharedStoneMat);
-        sill.position.set(winX, winY - 0.96, depth / 2 + 0.12);
-        this.group.add(sill);
-
-        // Stone Lintel (top header)
-        const lintel = new THREE.Mesh(winLintelGeom, sharedStoneMat);
-        lintel.position.set(winX, winY + 0.96, depth / 2 + 0.09);
-        this.group.add(lintel);
+        addGeom(stoneGeoms, winFrameGeom, winX, winY, depth / 2 + 0.03);
+        addGeom(windowGeoms, winPaneGeom, winX, winY, depth / 2 + 0.06);
+        addGeom(stoneGeoms, winVBarGeom, winX, winY, depth / 2 + 0.09);
+        addGeom(stoneGeoms, winHBarGeom, winX, winY, depth / 2 + 0.09);
+        addGeom(stoneGeoms, winSillGeom, winX, winY - 0.96, depth / 2 + 0.12);
+        addGeom(stoneGeoms, winLintelGeom, winX, winY + 0.96, depth / 2 + 0.09);
       }
     }
+
+    // Merge and add geometries
+    const mergeAndAdd = (geoms: THREE.BufferGeometry[], mat: THREE.Material, shadow = false) => {
+      if (geoms.length === 0) return;
+      const merged = mergeGeometries(geoms);
+      const mesh = new THREE.Mesh(merged, mat);
+      mesh.receiveShadow = shadow;
+      this.group.add(mesh);
+      geoms.forEach((g) => g.dispose());
+    };
+
+    mergeAndAdd(brickGeoms, brickMat, true);
+    mergeAndAdd(roofGeoms, roofMat, false);
+    mergeAndAdd(stoneGeoms, sharedStoneMat, true);
+    mergeAndAdd(windowGeoms, sharedWindowMat, false);
+    mergeAndAdd(doorGeoms, doorMat, false);
+    mergeAndAdd(potGeoms, sharedPotMat, false);
   }
 }

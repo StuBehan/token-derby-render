@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { InstancedCrowd } from './InstancedCrowd';
 import { createTexturedMaterial } from './Textures';
 
@@ -42,6 +43,51 @@ export class Grandstand extends THREE.Group {
   }
 
   private build() {
+    // Deferred geometry lists — merged to single meshes at the end of build()
+    const _concreteGeoms: THREE.BufferGeometry[] = [];
+    const _shadowGeoms: THREE.BufferGeometry[] = [];
+    const _roofTrimGeoms: THREE.BufferGeometry[] = [];
+    const _railGeoms: THREE.BufferGeometry[] = [];
+
+    /** Helper: clone a geometry, bake in world-space transform, push into list. */
+    const _pos = new THREE.Vector3();
+    const _quat = new THREE.Quaternion();
+    const _scale = new THREE.Vector3(1, 1, 1);
+    const _euler = new THREE.Euler();
+    const _mat4 = new THREE.Matrix4();
+    const deferGeom = (
+      list: THREE.BufferGeometry[],
+      geom: THREE.BufferGeometry,
+      x: number, y: number, z: number,
+      rx = 0, ry = 0, rz = 0,
+      sx = 1, sy = 1, sz = 1,
+    ) => {
+      const g = geom.clone();
+      _pos.set(x, y, z);
+      _euler.set(rx, ry, rz);
+      _quat.setFromEuler(_euler);
+      _scale.set(sx, sy, sz);
+      _mat4.compose(_pos, _quat, _scale);
+      g.applyMatrix4(_mat4);
+      list.push(g);
+    };
+
+    /** Flush a deferred list to a single merged Mesh. */
+    const flushMerge = (
+      list: THREE.BufferGeometry[],
+      material: THREE.Material,
+      castShadow: boolean,
+      receiveShadow: boolean,
+    ) => {
+      if (list.length === 0) return;
+      const merged = mergeGeometries(list);
+      const mesh = new THREE.Mesh(merged, material);
+      mesh.castShadow = castShadow;
+      mesh.receiveShadow = receiveShadow;
+      this.add(mesh);
+      list.forEach(g => g.dispose());
+      list.length = 0;
+    };
     const concreteMaterial = createTexturedMaterial('concrete', 0x687079, 10, 4, { roughness: 0.82 });
     const shadowMaterial = new THREE.MeshStandardMaterial({ color: 0x252b31, roughness: 0.75 });
     const aisleMaterial = new THREE.MeshStandardMaterial({ color: 0xd8d2c5, roughness: 0.62 });
@@ -80,11 +126,7 @@ export class Grandstand extends THREE.Group {
     const rearWallHeight = rearmostSeatTopY + 0.9;
     const rearWallY = 2.4 + rearWallHeight / 2;
 
-    const rearWall = new THREE.Mesh(new THREE.BoxGeometry(standWidth, rearWallHeight, 1.1), shadowMaterial);
-    rearWall.position.set(0, rearWallY, rearWallZ);
-    rearWall.castShadow = true;
-    rearWall.receiveShadow = true;
-    this.add(rearWall);
+    deferGeom(_shadowGeoms, new THREE.BoxGeometry(standWidth, rearWallHeight, 1.1), 0, rearWallY, rearWallZ);
 
     // 3. Side Profile (End caps)
     const bottomZ = 12.05;
@@ -180,17 +222,11 @@ export class Grandstand extends THREE.Group {
       const tierDepth = 2.15;
       
       for (const segment of segments) {
-        const tread = new THREE.Mesh(new THREE.BoxGeometry(segment.width, 0.32, tierDepth), concreteMaterial);
-        tread.position.set(segment.x, 3.24 + row * 1.25, 4.9 - row * 1.85);
-        tread.castShadow = false;
-        tread.receiveShadow = true;
-        this.add(tread);
-
-        const riser = new THREE.Mesh(new THREE.BoxGeometry(segment.width, 1.18, 0.34), concreteMaterial);
-        riser.position.set(segment.x, 2.8 + row * 1.25, 5.82 - row * 1.85);
-        riser.castShadow = false;
-        riser.receiveShadow = true;
-        this.add(riser);
+        // Defer tread & riser into merged concrete geometry
+        deferGeom(_concreteGeoms, new THREE.BoxGeometry(segment.width, 0.32, tierDepth),
+          segment.x, 3.24 + row * 1.25, 4.9 - row * 1.85);
+        deferGeom(_concreteGeoms, new THREE.BoxGeometry(segment.width, 1.18, 0.34),
+          segment.x, 2.8 + row * 1.25, 5.82 - row * 1.85);
 
         const seatWidth = Math.max(0.2, segment.width - 0.4);
         
@@ -299,22 +335,15 @@ export class Grandstand extends THREE.Group {
       });
     }
 
-    // 8. Main Support Columns
+    // 8. Main Support Columns — deferred into shadow merged mesh
     const colHeight = rearmostSeatTopY + 1.3;
     const colY = 2.3 + colHeight / 2;
     for (const x of columnXPositions) {
-      const column = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.42, colHeight, 10), shadowMaterial);
-      column.position.set(x, colY, -6.8);
-      column.castShadow = true;
-      this.add(column);
+      deferGeom(_shadowGeoms, new THREE.CylinderGeometry(0.3, 0.42, colHeight, 10), x, colY, -6.8);
     }
 
     // 9. Front Wall & Rail
-    const frontWall = new THREE.Mesh(new THREE.BoxGeometry(standWidth, 2.2, 0.65), shadowMaterial);
-    frontWall.position.set(0, 2.15, 7.0);
-    frontWall.castShadow = true;
-    frontWall.receiveShadow = true;
-    this.add(frontWall);
+    deferGeom(_shadowGeoms, new THREE.BoxGeometry(standWidth, 2.2, 0.65), 0, 2.15, 7.0);
 
     // Scoreboard metal frame/housing
     const frameGeo = new THREE.BoxGeometry(standWidth * 0.65 + 0.32, 3.00 + 0.16, 0.08);
@@ -337,19 +366,14 @@ export class Grandstand extends THREE.Group {
     tickerBoard.position.set(0, 1.58, 7.35); // flush on frontWall
     this.add(tickerBoard);
 
-    const frontRail = new THREE.Mesh(new THREE.BoxGeometry(standWidth - 0.6, 0.15, 0.35), railMaterial);
-    frontRail.position.set(0, 3.8, 7.0);
-    frontRail.castShadow = true;
-    this.add(frontRail);
+    // Front rail + posts — deferred into merged rail mesh
+    deferGeom(_railGeoms, new THREE.BoxGeometry(standWidth - 0.6, 0.15, 0.35), 0, 3.8, 7.0);
 
-    // Front rail posts (midway between poles or simple division)
+    // Front rail posts
     const railPostCount = this.config.poleCount;
     for (let i = 0; i < railPostCount; i++) {
       const x = -standWidth / 2 + 2.2 + i * (standWidth - 4.4) / Math.max(1, railPostCount - 1);
-      const railPost = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 1.35, 8), railMaterial);
-      railPost.position.set(x, 3.2, 7.0);
-      railPost.castShadow = true;
-      this.add(railPost);
+      deferGeom(_railGeoms, new THREE.CylinderGeometry(0.12, 0.12, 1.35, 8), x, 3.2, 7.0);
     }
 
     // 10. Roof canopy
@@ -368,28 +392,24 @@ export class Grandstand extends THREE.Group {
 
     this.addRoofDownlights(standWidth, roofY, 8.25);
 
-    // Fascia poles and cantilevers
+    // Fascia poles and cantilevers — deferred into merged roofTrim mesh
     const fasciaPostHeight = (roofY - 0.85) - 3.4;
     const fasciaPostY = 3.4 + fasciaPostHeight / 2;
 
     for (const x of poleXPositions) {
-      const fasciaPost = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, fasciaPostHeight, 8), roofTrimMaterial);
-      fasciaPost.position.set(x, fasciaPostY, 7.0);
-      fasciaPost.castShadow = true;
-      this.add(fasciaPost);
-
-      const cantilever = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.24, 3.15), roofTrimMaterial);
-      cantilever.position.set(x, roofY - 0.85, 8.5);
-      cantilever.castShadow = true;
-      this.add(cantilever);
+      deferGeom(_roofTrimGeoms, new THREE.CylinderGeometry(0.18, 0.22, fasciaPostHeight, 8), x, fasciaPostY, 7.0);
+      deferGeom(_roofTrimGeoms, new THREE.BoxGeometry(0.28, 0.24, 3.15), x, roofY - 0.85, 8.5);
     }
 
     for (const x of [-standWidth / 2 + 1.2, standWidth / 2 - 1.2]) {
-      const roofEndCap = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.1, roofDepth), roofTrimMaterial);
-      roofEndCap.position.set(x, roofY - 0.6, roofCenterZ);
-      roofEndCap.castShadow = true;
-      this.add(roofEndCap);
+      deferGeom(_roofTrimGeoms, new THREE.BoxGeometry(0.9, 1.1, roofDepth), x, roofY - 0.6, roofCenterZ);
     }
+
+    // --- Flush all deferred geometry lists to single merged meshes ---
+    flushMerge(_concreteGeoms, concreteMaterial, false, true);
+    flushMerge(_shadowGeoms,   shadowMaterial,   true,  true);
+    flushMerge(_roofTrimGeoms, roofTrimMaterial, true,  false);
+    flushMerge(_railGeoms,     railMaterial,     true,  false);
   }
 
   private addRoofDownlights(standWidth: number, roofY: number, z: number) {
@@ -405,22 +425,53 @@ export class Grandstand extends THREE.Group {
     const usableWidth = standWidth - 8;
     const spacing = usableWidth / (count - 1);
 
+    const fixtureBaseGeom = new THREE.BoxGeometry(1.25, 0.18, 0.55);
+    const lensBaseGeom = new THREE.BoxGeometry(0.92, 0.05, 0.38);
+    const fixtureGeoms: THREE.BufferGeometry[] = [];
+    const lensGeoms: THREE.BufferGeometry[] = [];
+
+    const _fp = new THREE.Vector3();
+    const _fm = new THREE.Matrix4();
+
     for (let index = 0; index < count; index += 1) {
       const x = -usableWidth / 2 + index * spacing;
-      const fixture = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.18, 0.55), fixtureMaterial);
-      fixture.position.set(x, roofY - 1.32, z);
-      fixture.castShadow = true;
-      this.add(fixture);
 
-      const lens = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.05, 0.38), glowMaterial);
-      lens.position.set(x, roofY - 1.43, z);
-      this.add(lens);
+      const fg = fixtureBaseGeom.clone();
+      _fp.set(x, roofY - 1.32, z);
+      _fm.identity();
+      _fm.setPosition(_fp);
+      fg.applyMatrix4(_fm);
+      fixtureGeoms.push(fg);
+
+      const lg = lensBaseGeom.clone();
+      _fp.set(x, roofY - 1.43, z);
+      _fm.setPosition(_fp);
+      lg.applyMatrix4(_fm);
+      lensGeoms.push(lg);
 
       if (index % activeLightEvery === 0 || index === count - 1) {
         const light = new THREE.PointLight(0xffdf9a, 0.85, 11, 1.8);
         light.position.set(x, roofY - 1.7, z);
         this.add(light);
       }
+    }
+
+    fixtureBaseGeom.dispose();
+    lensBaseGeom.dispose();
+
+    if (fixtureGeoms.length > 0) {
+      const merged = mergeGeometries(fixtureGeoms);
+      const mesh = new THREE.Mesh(merged, fixtureMaterial);
+      mesh.castShadow = true;
+      this.add(mesh);
+      fixtureGeoms.forEach(g => g.dispose());
+    }
+
+    if (lensGeoms.length > 0) {
+      const merged = mergeGeometries(lensGeoms);
+      const mesh = new THREE.Mesh(merged, glowMaterial);
+      this.add(mesh);
+      lensGeoms.forEach(g => g.dispose());
     }
   }
 
@@ -510,31 +561,55 @@ export class Grandstand extends THREE.Group {
     const actualHeight = stepCount * riserHeight;
     const topZ = bottomZ - stepCount * treadDepth;
 
+    // --- Merge all concrete stair treads into one mesh ---
+    const concreteGeoms: THREE.BufferGeometry[] = [];
+    const _sp = new THREE.Vector3();
+    const _sq = new THREE.Quaternion();
+    const _ss = new THREE.Vector3(1, 1, 1);
+    const _sm = new THREE.Matrix4();
+    const pushGeom = (list: THREE.BufferGeometry[], geom: THREE.BufferGeometry, px: number, py: number, pz: number, rx = 0, sy = 1) => {
+      const g = geom.clone();
+      _sp.set(px, py, pz);
+      _sq.identity();
+      if (rx !== 0) _sq.setFromEuler(new THREE.Euler(rx, 0, 0));
+      _ss.set(1, sy, 1);
+      _sm.compose(_sp, _sq, _ss);
+      g.applyMatrix4(_sm);
+      list.push(g);
+    };
+
+    const stepGeom = new THREE.BoxGeometry(width, stairThickness, treadDepth);
     for (let step = 0; step < stepCount; step += 1) {
       const stepTop = (step + 1) * riserHeight;
-      const stair = new THREE.Mesh(new THREE.BoxGeometry(width, stairThickness, treadDepth), material);
-      stair.position.set(
+      pushGeom(concreteGeoms, stepGeom,
         x,
         baseHeight + stepTop - stairThickness / 2,
         bottomZ - step * treadDepth - treadDepth / 2,
       );
-      stair.castShadow = false;
-      stair.receiveShadow = true;
-      this.add(stair);
     }
+    stepGeom.dispose();
 
     if (landingDepth > 0) {
-      const landing = new THREE.Mesh(new THREE.BoxGeometry(width, stairThickness, landingDepth), material);
-      landing.position.set(x, baseHeight + actualHeight - stairThickness / 2, topZ - landingDepth / 2);
-      landing.castShadow = false;
-      landing.receiveShadow = true;
-      this.add(landing);
+      const landingGeom = new THREE.BoxGeometry(width, stairThickness, landingDepth);
+      pushGeom(concreteGeoms, landingGeom, x, baseHeight + actualHeight - stairThickness / 2, topZ - landingDepth / 2);
+      landingGeom.dispose();
+    }
+
+    if (concreteGeoms.length > 0) {
+      const merged = mergeGeometries(concreteGeoms);
+      const mesh = new THREE.Mesh(merged, material);
+      mesh.castShadow = false;
+      mesh.receiveShadow = true;
+      this.add(mesh);
+      concreteGeoms.forEach(g => g.dispose());
     }
 
     if (!withRails) {
       return;
     }
 
+    // --- Merge all rail ironwork (supports, posts, sloped rails) into one mesh ---
+    const railGeoms: THREE.BufferGeometry[] = [];
     const postHeight = riserHeight * 3;
     const railClearance = 0.25;
     const postSteps = new Set<number>([0, stepCount]);
@@ -551,27 +626,23 @@ export class Grandstand extends THREE.Group {
       };
     });
 
+    const supportGeom = new THREE.BoxGeometry(0.18, 1, 0.18); // scaled via sy
     if (supportsToGround) {
       for (const point of railPoints) {
         const supportTop = baseHeight + Math.max(riserHeight, point.step * riserHeight) - stairThickness;
         const supportHeight = Math.max(0.25, supportTop);
-
         for (const supportX of [x - width * 0.34, x + width * 0.34]) {
-          const support = new THREE.Mesh(new THREE.BoxGeometry(0.18, supportHeight, 0.18), railMaterial);
-          support.position.set(supportX, supportHeight / 2, point.z);
-          support.castShadow = true;
-          this.add(support);
+          pushGeom(railGeoms, supportGeom, supportX, supportHeight / 2, point.z, 0, supportHeight);
         }
       }
     }
+    supportGeom.dispose();
 
+    const postGeom = new THREE.CylinderGeometry(0.1, 0.12, 2.2, 8);
     for (const point of railPoints) {
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 2.2, 8), railMaterial);
-      post.scale.y = postHeight / 2.2;
-      post.position.set(railX, point.y, point.z);
-      post.castShadow = true;
-      this.add(post);
+      pushGeom(railGeoms, postGeom, railX, point.y, point.z, 0, postHeight / 2.2);
     }
+    postGeom.dispose();
 
     for (let index = 0; index < railPoints.length - 1; index += 1) {
       const start = railPoints[index];
@@ -579,11 +650,24 @@ export class Grandstand extends THREE.Group {
       const deltaY = end.y - start.y;
       const deltaZ = end.z - start.z;
       const length = Math.hypot(deltaY, deltaZ);
-      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.16, length), railMaterial);
-      rail.position.set(railX, (start.y + end.y) / 2 + postHeight / 2, (start.z + end.z) / 2);
-      rail.rotation.x = Math.atan2(deltaY, -deltaZ);
-      rail.castShadow = true;
-      this.add(rail);
+      const angle = Math.atan2(deltaY, -deltaZ);
+      const railGeom = new THREE.BoxGeometry(0.18, 0.16, length);
+      const g = railGeom.clone();
+      _sp.set(railX, (start.y + end.y) / 2 + postHeight / 2, (start.z + end.z) / 2);
+      _sq.setFromEuler(new THREE.Euler(angle, 0, 0));
+      _ss.set(1, 1, 1);
+      _sm.compose(_sp, _sq, _ss);
+      g.applyMatrix4(_sm);
+      railGeoms.push(g);
+      railGeom.dispose();
+    }
+
+    if (railGeoms.length > 0) {
+      const merged = mergeGeometries(railGeoms);
+      const mesh = new THREE.Mesh(merged, railMaterial);
+      mesh.castShadow = true;
+      this.add(mesh);
+      railGeoms.forEach(g => g.dispose());
     }
   }
 

@@ -31,6 +31,8 @@ export class Horse {
   public targetLaneOffset: number;
   private readonly initialLaneOffset: number;
   private readonly initialProgress: number;
+  private static readonly scratchPos = new THREE.Vector3();
+  private static readonly scratchTangent = new THREE.Vector3();
   private jockey!: Person;
   private prevSwings: number[] = [0, 0, 0, 0];
   private readonly normal = new THREE.Vector3();
@@ -319,8 +321,8 @@ export class Horse {
     const steerSpeed = 3.5;
     this.laneOffset += (this.targetLaneOffset - this.laneOffset) * delta * steerSpeed;
 
-    const position = trackCurve.getPointAt(Math.max(0, this.progress));
-    const tangent = trackCurve.getTangentAt(Math.max(0, this.progress)).normalize();
+    const position = trackCurve.getPointAt(Math.max(0, this.progress), Horse.scratchPos);
+    const tangent = trackCurve.getTangentAt(Math.max(0, this.progress), Horse.scratchTangent).normalize();
     this.normal.set(-tangent.z, 0, tangent.x).normalize();
     const speedFactor = Math.min(1.0, this.speed / 0.015);
     const laneBob = Math.sin(this.phase) * 0.12 * Math.max(0.15, speedFactor);

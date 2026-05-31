@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 export interface FloodlightsConfig {
   trackStraightHalfLength: number;
@@ -51,19 +52,48 @@ export class Floodlights extends THREE.Group {
       new THREE.Vector3(this.config.trackStraightHalfLength + 14, 0, this.config.trackOuterRadius + 13),
     ];
 
-    const createBeam = (p1: THREE.Vector3, p2: THREE.Vector3, thickness: number, material: THREE.Material) => {
+    const createBeamGeom = (p1: THREE.Vector3, p2: THREE.Vector3, thickness: number) => {
       const direction = new THREE.Vector3().subVectors(p2, p1);
       const length = direction.length();
       const geom = new THREE.BoxGeometry(thickness, length, thickness);
-      const mesh = new THREE.Mesh(geom, material);
       const midpoint = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
-      mesh.position.copy(midpoint);
-      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
-      mesh.castShadow = true;
-      return mesh;
+      
+      const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.clone().normalize());
+      const matrix = new THREE.Matrix4().compose(midpoint, quat, new THREE.Vector3(1, 1, 1));
+      geom.applyMatrix4(matrix);
+      return geom;
     };
 
-    positions.forEach((position) => {
+    const _pos = new THREE.Vector3();
+    const _quat = new THREE.Quaternion();
+    const _scale = new THREE.Vector3(1, 1, 1);
+    const _euler = new THREE.Euler();
+    const _matrix = new THREE.Matrix4();
+
+    function addGeom(
+      list: THREE.BufferGeometry[],
+      geom: THREE.BufferGeometry,
+      x: number,
+      y: number,
+      z: number,
+      rx = 0,
+      ry = 0,
+      rz = 0,
+      sx = 1,
+      sy = 1,
+      sz = 1
+    ) {
+      const cloned = geom.clone();
+      _pos.set(x, y, z);
+      _euler.set(rx, ry, rz);
+      _quat.setFromEuler(_euler);
+      _scale.set(sx, sy, sz);
+      _matrix.compose(_pos, _quat, _scale);
+      cloned.applyMatrix4(_matrix);
+      list.push(cloned);
+    }
+
+    positions.forEach((position, mastIndex) => {
       // 1. Procedural Square-Tapered Lattice Tower (Truss Mast)
       const bottomW = 2.4;
       const topW = 0.9;
@@ -76,11 +106,13 @@ export class Floodlights extends THREE.Group {
         [-1, 1],
       ];
 
+      const towerGeoms: THREE.BufferGeometry[] = [];
+
       // Corner Legs
       for (const [sx, sz] of cornerOffsets) {
         const p1 = new THREE.Vector3(position.x + (sx * bottomW) / 2, 0, position.z + (sz * bottomW) / 2);
         const p2 = new THREE.Vector3(position.x + (sx * topW) / 2, height, position.z + (sz * topW) / 2);
-        this.add(createBeam(p1, p2, 0.18, mastMaterial));
+        towerGeoms.push(createBeamGeom(p1, p2, 0.18));
       }
 
       // Panels: Horizontal struts and X-braces
@@ -95,7 +127,7 @@ export class Floodlights extends THREE.Group {
             const c2 = cornerOffsets[(c + 1) % 4];
             const p1 = new THREE.Vector3(position.x + (c1[0] * w) / 2, y, position.z + (c1[1] * w) / 2);
             const p2 = new THREE.Vector3(position.x + (c2[0] * w) / 2, y, position.z + (c2[1] * w) / 2);
-            this.add(createBeam(p1, p2, 0.12, mastMaterial));
+            towerGeoms.push(createBeamGeom(p1, p2, 0.12));
           }
         }
 
@@ -115,10 +147,19 @@ export class Floodlights extends THREE.Group {
             const topLeft = new THREE.Vector3(position.x + (c1[0] * w2) / 2, y2, position.z + (c1[1] * w2) / 2);
             const topRight = new THREE.Vector3(position.x + (c2[0] * w2) / 2, y2, position.z + (c2[1] * w2) / 2);
 
-            this.add(createBeam(botLeft, topRight, 0.08, mastMaterial));
-            this.add(createBeam(botRight, topLeft, 0.08, mastMaterial));
+            towerGeoms.push(createBeamGeom(botLeft, topRight, 0.08));
+            towerGeoms.push(createBeamGeom(botRight, topLeft, 0.08));
           }
         }
+      }
+
+      if (towerGeoms.length > 0) {
+        const merged = mergeGeometries(towerGeoms);
+        const mesh = new THREE.Mesh(merged, mastMaterial);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        this.add(mesh);
+        towerGeoms.forEach(g => g.dispose());
       }
 
       // 2. Gantry Platform at the Top (aligned to face track center)
@@ -130,11 +171,8 @@ export class Floodlights extends THREE.Group {
       platformGroup.rotation.y = angleY;
       this.add(platformGroup);
 
-      // Walk deck floor
-      const deck = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.1, 1.8), mastMaterial);
-      deck.castShadow = true;
-      deck.receiveShadow = true;
-      platformGroup.add(deck);
+      const platformGeoms: THREE.BufferGeometry[] = [];
+      addGeom(platformGeoms, new THREE.BoxGeometry(4.4, 0.1, 1.8), 0, 0, 0);
 
       // Safety railings around back and sides
       const railPosts = [
@@ -144,28 +182,24 @@ export class Floodlights extends THREE.Group {
         new THREE.Vector3(2.1, 0.5, 0.8),   // front-right
       ];
       railPosts.forEach((rPos) => {
-        const post = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.0, 0.08), mastMaterial);
-        post.position.copy(rPos);
-        post.castShadow = true;
-        platformGroup.add(post);
+        addGeom(platformGeoms, new THREE.BoxGeometry(0.08, 1.0, 0.08), rPos.x, rPos.y, rPos.z);
       });
 
-      const backRail1 = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.06, 0.06), mastMaterial);
-      backRail1.position.set(0, 1.0, -0.8);
-      platformGroup.add(backRail1);
-
-      const backRail2 = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.06, 0.06), mastMaterial);
-      backRail2.position.set(0, 0.5, -0.8);
-      platformGroup.add(backRail2);
+      addGeom(platformGeoms, new THREE.BoxGeometry(4.2, 0.06, 0.06), 0, 1.0, -0.8);
+      addGeom(platformGeoms, new THREE.BoxGeometry(4.2, 0.06, 0.06), 0, 0.5, -0.8);
 
       for (const side of [-1, 1]) {
-        const sideRail1 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 1.6), mastMaterial);
-        sideRail1.position.set(side * 2.1, 1.0, 0);
-        platformGroup.add(sideRail1);
+        addGeom(platformGeoms, new THREE.BoxGeometry(0.06, 0.06, 1.6), side * 2.1, 1.0, 0);
+        addGeom(platformGeoms, new THREE.BoxGeometry(0.06, 0.06, 1.6), side * 2.1, 0.5, 0);
+      }
 
-        const sideRail2 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 1.6), mastMaterial);
-        sideRail2.position.set(side * 2.1, 0.5, 0);
-        platformGroup.add(sideRail2);
+      if (platformGeoms.length > 0) {
+        const merged = mergeGeometries(platformGeoms);
+        const platformMesh = new THREE.Mesh(merged, mastMaterial);
+        platformMesh.castShadow = true;
+        platformMesh.receiveShadow = true;
+        platformGroup.add(platformMesh);
+        platformGeoms.forEach(g => g.dispose());
       }
 
       // 3. 2x4 Light Array (Rack of 8 adjustable lamps)
@@ -211,7 +245,7 @@ export class Floodlights extends THREE.Group {
       this.add(trackTarget);
       spotlight.target = trackTarget;
 
-      spotlight.castShadow = true;
+      spotlight.castShadow = (mastIndex >= 2);
       spotlight.shadow.mapSize.width = 512;
       spotlight.shadow.mapSize.height = 512;
       spotlight.shadow.camera.near = 10;

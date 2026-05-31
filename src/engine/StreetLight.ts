@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 export interface StreetLightConfig {
   /** Hex color for the light bulb. Defaults to 0xffeaad. */
@@ -71,110 +72,108 @@ export class StreetLight {
         });
     this.glassMaterial = glassMaterial;
 
+    const ironGeoms: THREE.BufferGeometry[] = [];
+    const glassGeoms: THREE.BufferGeometry[] = [];
+
+    const _pos = new THREE.Vector3();
+    const _quat = new THREE.Quaternion();
+    const _scale = new THREE.Vector3(1, 1, 1);
+    const _euler = new THREE.Euler();
+    const _matrix = new THREE.Matrix4();
+
+    function addGeom(
+      list: THREE.BufferGeometry[],
+      geom: THREE.BufferGeometry,
+      x: number,
+      y: number,
+      z: number,
+      rx = 0,
+      ry = 0,
+      rz = 0,
+      sx = 1,
+      sy = 1,
+      sz = 1
+    ) {
+      const cloned = geom.clone();
+      _pos.set(x, y, z);
+      _euler.set(rx, ry, rz);
+      _quat.setFromEuler(_euler);
+      _scale.set(sx, sy, sz);
+      _matrix.compose(_pos, _quat, _scale);
+      cloned.applyMatrix4(_matrix);
+      list.push(cloned);
+    }
+
     const shouldCastShadow = this.config.castShadow;
 
     // 1. Ornate Base
-    const base = new THREE.Mesh(baseGeom, material);
-    base.position.y = 0.4;
-    base.castShadow = shouldCastShadow;
-    base.receiveShadow = true;
-    this.group.add(base);
-
-    // Decorative molding on base
-    const molding = new THREE.Mesh(moldingGeom, material);
-    molding.position.y = 0.8;
-    molding.castShadow = shouldCastShadow;
-    this.group.add(molding);
+    addGeom(ironGeoms, baseGeom, 0, 0.4, 0);
+    addGeom(ironGeoms, moldingGeom, 0, 0.8, 0);
 
     // 2. Main Tapered Shaft
-    const shaft = new THREE.Mesh(shaftGeom, material);
-    shaft.position.y = 3.0; // centered at 3.0 (from 0.8 to 5.2)
-    shaft.castShadow = shouldCastShadow;
-    this.group.add(shaft);
+    addGeom(ironGeoms, shaftGeom, 0, 3.0, 0);
 
     // 3. Ornate Rings
-    const ring1 = new THREE.Mesh(ring1Geom, material);
-    ring1.position.y = 2.0;
-    ring1.castShadow = shouldCastShadow;
-    this.group.add(ring1);
-
-    const ring2 = new THREE.Mesh(ring2Geom, material);
-    ring2.position.y = 4.0;
-    ring2.castShadow = shouldCastShadow;
-    this.group.add(ring2);
+    addGeom(ironGeoms, ring1Geom, 0, 2.0, 0);
+    addGeom(ironGeoms, ring2Geom, 0, 4.0, 0);
 
     // 4. Pole Top Cap
-    const topCap = new THREE.Mesh(topCapGeom, material);
-    topCap.position.y = 5.35;
-    topCap.castShadow = shouldCastShadow;
-    this.group.add(topCap);
+    addGeom(ironGeoms, topCapGeom, 0, 5.35, 0);
 
     // 5. Ornate Double Arms (Crossbar)
-    const arm = new THREE.Mesh(armGeom, material);
-    arm.position.y = 5.4;
-    arm.castShadow = shouldCastShadow;
-    this.group.add(arm);
+    addGeom(ironGeoms, armGeom, 0, 5.4, 0);
 
     // Curved/diagonal support braces
     for (const side of [-1, 1]) {
-      const brace = new THREE.Mesh(braceGeom, material);
-      brace.position.set(side * 0.38, 5.05, 0);
-      brace.rotation.z = side * 0.72; // angled brace
-      brace.castShadow = shouldCastShadow;
-      this.group.add(brace);
+      addGeom(ironGeoms, braceGeom, side * 0.38, 5.05, 0, 0, 0, side * 0.72);
     }
 
     // Finials on the ends of the arm
     for (const side of [-1, 1]) {
-      const finial = new THREE.Mesh(finialGeom, material);
-      finial.position.set(side * 0.96, 5.4, 0);
-      this.group.add(finial);
+      addGeom(ironGeoms, finialGeom, side * 0.96, 5.4, 0);
     }
 
     // A central top spire
-    const spire = new THREE.Mesh(spireGeom, material);
-    spire.position.y = 5.7;
-    spire.castShadow = shouldCastShadow;
-    this.group.add(spire);
+    addGeom(ironGeoms, spireGeom, 0, 5.7, 0);
 
     // 6. Lanterns (Hanging from the arm ends)
     for (const side of [-1, 1]) {
       const lanternX = side * 0.8;
       const lanternY = 5.25;
 
-      const lanternGroup = new THREE.Group();
-      lanternGroup.position.set(lanternX, lanternY, 0);
-
       // Hanging bracket/loop
-      const loop = new THREE.Mesh(loopGeom, material);
-      loop.position.y = 0.05;
-      lanternGroup.add(loop);
+      addGeom(ironGeoms, loopGeom, lanternX, lanternY + 0.05, 0);
 
       // Lantern Top Roof (cap)
-      const roof = new THREE.Mesh(roofGeom, material);
-      roof.position.y = -0.06;
-      roof.castShadow = shouldCastShadow;
-      lanternGroup.add(roof);
+      addGeom(ironGeoms, roofGeom, lanternX, lanternY - 0.06, 0);
 
       // Glass Body (hexagonal prism)
-      const bulb = new THREE.Mesh(bulbGeom, glassMaterial);
-      bulb.position.y = -0.32;
-      bulb.castShadow = shouldCastShadow;
-      lanternGroup.add(bulb);
+      addGeom(glassGeoms, bulbGeom, lanternX, lanternY - 0.32, 0);
 
       // Lantern Bottom Cap
-      const bottomCap = new THREE.Mesh(bottomCapGeom, material);
-      bottomCap.position.y = -0.52;
-      bottomCap.castShadow = shouldCastShadow;
-      lanternGroup.add(bottomCap);
+      addGeom(ironGeoms, bottomCapGeom, lanternX, lanternY - 0.52, 0);
 
-      const bottomFinial = new THREE.Mesh(bottomFinialGeom, material);
-      bottomFinial.position.y = -0.62;
-      bottomFinial.rotation.x = Math.PI; // point downwards
-      bottomFinial.castShadow = shouldCastShadow;
-      lanternGroup.add(bottomFinial);
+      // Bottom finial
+      addGeom(ironGeoms, bottomFinialGeom, lanternX, lanternY - 0.62, 0, Math.PI, 0, 0);
+    }
 
-      this.group.add(lanternGroup);
+    // Merge and add iron meshes
+    if (ironGeoms.length > 0) {
+      const merged = mergeGeometries(ironGeoms);
+      const mesh = new THREE.Mesh(merged, material);
+      mesh.castShadow = shouldCastShadow;
+      mesh.receiveShadow = true;
+      this.group.add(mesh);
+      ironGeoms.forEach(g => g.dispose());
+    }
+
+    // Merge and add glass meshes
+    if (glassGeoms.length > 0) {
+      const merged = mergeGeometries(glassGeoms);
+      const mesh = new THREE.Mesh(merged, glassMaterial);
+      mesh.castShadow = shouldCastShadow;
+      this.group.add(mesh);
+      glassGeoms.forEach(g => g.dispose());
     }
 
     // 7. PointLight (centered in the middle of the lamppost's reach to cast light downwards)

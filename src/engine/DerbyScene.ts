@@ -238,16 +238,17 @@ export class DerbyScene {
     // Compute target end position and look target based on selection camera mode
     if (this.selectedHorse && this.selectedHorseCameraMode === 'follow') {
       const horse = this.selectedHorse;
-      const tangent = this.trackCurve.getTangentAt(horse.progress).normalize();
+      const tangent = this.trackCurve.getTangentAt(horse.progress, this.scratchVec4).normalize();
       const horsePos = horse.group.position;
       const distance = 8.5;
       const height = 3.2;
       this.transEndPos.copy(horsePos).addScaledVector(tangent, -distance);
       this.transEndPos.y += height;
-      this.transEndLook.copy(horsePos).add(new THREE.Vector3(0, 1.3, 0));
+      this.transEndLook.copy(horsePos);
+      this.transEndLook.y += 1.3;
     } else if (this.selectedHorse && this.selectedHorseCameraMode === 'jockey') {
       const horse = this.selectedHorse;
-      const tangent = this.trackCurve.getTangentAt(horse.progress).normalize();
+      const tangent = this.trackCurve.getTangentAt(horse.progress, this.scratchVec4).normalize();
       const horsePos = horse.group.position;
       const forwardOffset = 0.3;
       const headHeight = 3.25;
@@ -287,6 +288,10 @@ export class DerbyScene {
     this.running = true;
     this.setCameraMode('start_hold');
     this.selectedHorseCameraMode = 'free';
+    if (this.selectedHorse) {
+      this.selectedHorse = null;
+      this.onHorseSelected?.(null);
+    }
     if (this.liveRace) {
       // In live race, reset doesn't make sense to randomize simulated speeds,
       // but we can re-sync.
@@ -437,6 +442,12 @@ export class DerbyScene {
       this.scene.remove(h.group);
     });
     this.horses.length = 0;
+
+    // Reset selected horse to prevent tracking/UI errors on deleted horses
+    if (this.selectedHorse) {
+      this.selectedHorse = null;
+      this.onHorseSelected?.(null);
+    }
   }
 
   private syncHorses(apiHorses: HorseView[]) {
@@ -514,13 +525,38 @@ export class DerbyScene {
       this.weatherManager.dispose();
     }
 
-    this.scene.traverse((object) => {
-      if (object instanceof THREE.Mesh) {
-        object.geometry.dispose();
-        const materials = Array.isArray(object.material) ? object.material : [object.material];
-        materials.forEach((material) => material.dispose());
+    // Clean up active achievement effects remaining
+    this.activeEffects.forEach((effect) => {
+      try {
+        effect.texture.dispose();
+        effect.material.dispose();
+      } catch (e) {
+        // ignore
       }
     });
+    this.activeEffects.length = 0;
+
+    // Properly dispose of geometries, materials, and textures for ALL objects in scene
+    this.scene.traverse((object: any) => {
+      if (object.geometry) {
+        object.geometry.dispose();
+      }
+      if (object.material) {
+        const materials = Array.isArray(object.material) ? object.material : [object.material];
+        for (const mat of materials) {
+          if (mat) {
+            for (const key in mat) {
+              const val = mat[key];
+              if (val && val instanceof THREE.Texture) {
+                val.dispose();
+              }
+            }
+            mat.dispose();
+          }
+        }
+      }
+    });
+
     this.renderer.dispose();
     if (this.showPerfPanel) {
       this.perfPanel.remove();
@@ -1486,7 +1522,6 @@ export class DerbyScene {
     this.updateCameraRail(delta);
     this.updateClouds(delta);
     this.weatherManager?.update(delta, this.timeOfDay);
-    this.applyShadowPerformanceMode();
     this.skyline.update(delta, this.running);
 
     // Enable floodlights automatically at night/sunset, or during rain/storm weather
@@ -1990,7 +2025,7 @@ export class DerbyScene {
       // Dynamically update the end target if following/jockeying a moving horse
       if (this.selectedHorse && this.selectedHorseCameraMode === 'follow') {
         const horse = this.selectedHorse;
-        const tangent = this.trackCurve.getTangentAt(horse.progress).normalize();
+        const tangent = this.trackCurve.getTangentAt(horse.progress, this.scratchVec4).normalize();
         const horsePos = horse.group.position;
         const distance = 8.5;
         const height = 3.2;
@@ -2000,7 +2035,7 @@ export class DerbyScene {
         this.transEndLook.y += 1.3;
       } else if (this.selectedHorse && this.selectedHorseCameraMode === 'jockey') {
         const horse = this.selectedHorse;
-        const tangent = this.trackCurve.getTangentAt(horse.progress).normalize();
+        const tangent = this.trackCurve.getTangentAt(horse.progress, this.scratchVec4).normalize();
         const horsePos = horse.group.position;
         const forwardOffset = 0.3;
         const headHeight = 3.25;
@@ -2061,7 +2096,7 @@ export class DerbyScene {
         const y = 7.5;
         const z = -34.0;
         this.camera.position.set(x, y, z);
-        this.camera.lookAt(new THREE.Vector3(-8.0, 6.0, -48.5));
+        this.camera.lookAt(this.scratchVec1.set(-8.0, 6.0, -48.5));
       } else if (this.cameraTimer < 7.5) {
         // Phase 2: Smooth sweep from grandstand to the starting/finish line gates
         const p = (this.cameraTimer - 4.0) / 3.5;
@@ -2098,7 +2133,7 @@ export class DerbyScene {
     // Selected Rider Follow/Jockey Cameras
     if (this.selectedHorse && this.selectedHorseCameraMode === 'follow') {
       const horse = this.selectedHorse;
-      const tangent = this.trackCurve.getTangentAt(horse.progress).normalize();
+      const tangent = this.trackCurve.getTangentAt(horse.progress, this.scratchVec4).normalize();
       const horsePos = horse.group.position;
       const distance = 8.5;
       const height = 3.2;
@@ -2115,7 +2150,7 @@ export class DerbyScene {
 
     if (this.selectedHorse && this.selectedHorseCameraMode === 'jockey') {
       const horse = this.selectedHorse;
-      const tangent = this.trackCurve.getTangentAt(horse.progress).normalize();
+      const tangent = this.trackCurve.getTangentAt(horse.progress, this.scratchVec4).normalize();
       const horsePos = horse.group.position;
       const forwardOffset = 0.3;
       const headHeight = 3.25;
@@ -2556,16 +2591,6 @@ export class DerbyScene {
 
     if (this.sunLight) {
       this.sunLight.castShadow = !usePerformanceMode;
-    }
-  }
-
-  private applyShadowPerformanceMode() {
-    if (this.host.clientWidth < ULTRAWIDE_WIDTH_THRESHOLD) return;
-
-    this.renderer.shadowMap.enabled = false;
-
-    if (this.sunLight) {
-      this.sunLight.castShadow = false;
     }
   }
 
