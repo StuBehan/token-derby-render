@@ -90,7 +90,6 @@ export class Grandstand extends THREE.Group {
     };
     const concreteMaterial = createTexturedMaterial('concrete', 0x687079, 10, 4, { roughness: 0.82 });
     const shadowMaterial = new THREE.MeshStandardMaterial({ color: 0x252b31, roughness: 0.75 });
-    const aisleMaterial = new THREE.MeshStandardMaterial({ color: 0xd8d2c5, roughness: 0.62 });
     const railMaterial = new THREE.MeshStandardMaterial({ color: 0xf4ead6, roughness: 0.48 });
     const roofMaterial = createTexturedMaterial('roof', 0xd8d6cd, 9, 3, { roughness: 0.42 });
     const roofTrimMaterial = new THREE.MeshStandardMaterial({ color: 0x34414a, roughness: 0.55 });

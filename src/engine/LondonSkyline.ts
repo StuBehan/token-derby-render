@@ -47,7 +47,8 @@ function flushMesh(
 
 export class LondonSkyline extends THREE.Group {
   private londonEyeWheel?: THREE.Group;
-  private londonEyeCapsules: THREE.Group[] = [];
+  private londonEyeIronwork?: THREE.InstancedMesh;
+  private londonEyePods?: THREE.InstancedMesh;
 
   // Warning Lights Beacons
   private warningLights: THREE.Mesh[] = [];
@@ -80,23 +81,27 @@ export class LondonSkyline extends THREE.Group {
       roughness: 0.5,
     });
 
-    // ── 1. Elizabeth Tower (Big Ben) ──────────────────────────────────────────
-    const bigBenGeoms: THREE.BufferGeometry[] = [];
+    // We will accumulate ALL static landmark parts sharing skylineMaterial into a single list
+    const staticLandmarkGeoms: THREE.BufferGeometry[] = [];
     const clockFaceGeoms: THREE.BufferGeometry[] = [];
 
+    // ── 1. Elizabeth Tower (Big Ben) ──────────────────────────────────────────
+    const bbX = -110;
+    const bbZ = -165;
     // Tower shaft
-    bakeGeom(bigBenGeoms, new THREE.BoxGeometry(6.4, 42.0, 6.4), 0, 21.0, 0);
+    bakeGeom(staticLandmarkGeoms, new THREE.BoxGeometry(6.4, 42.0, 6.4), bbX, 21.0, bbZ);
     // Clock belfry section
-    bakeGeom(bigBenGeoms, new THREE.BoxGeometry(7.2, 6.0, 7.2), 0, 45.0, 0);
+    bakeGeom(staticLandmarkGeoms, new THREE.BoxGeometry(7.2, 6.0, 7.2), bbX, 45.0, bbZ);
     // Pyramid roof spire
-    bakeGeom(bigBenGeoms, new THREE.ConeGeometry(5.2, 14.0, 4), 0, 55.0, 0, 0, Math.PI / 4, 0);
+    bakeGeom(staticLandmarkGeoms, new THREE.ConeGeometry(5.2, 14.0, 4), bbX, 55.0, bbZ, 0, Math.PI / 4, 0);
     // Spire tip finial
-    bakeGeom(bigBenGeoms, new THREE.CylinderGeometry(0.1, 0.4, 4.0, 4), 0, 63.0, 0);
+    bakeGeom(staticLandmarkGeoms, new THREE.CylinderGeometry(0.1, 0.4, 4.0, 4), bbX, 63.0, bbZ);
 
-    // Clock faces on 4 sides (baked individually with rotated positions)
+    // Clock faces on 4 sides (baked individually with rotated positions relative to Big Ben center)
     for (const rot of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
       const basePos = new THREE.Vector3(0, 45.0, 3.65);
       basePos.applyAxisAngle(new THREE.Vector3(0, 1, 0), rot);
+      basePos.add(new THREE.Vector3(bbX, 0, bbZ));
       const g = new THREE.BoxGeometry(2.8, 2.8, 0.15).clone();
       g.applyMatrix4(
         new THREE.Matrix4().compose(
@@ -108,71 +113,52 @@ export class LondonSkyline extends THREE.Group {
       clockFaceGeoms.push(g);
     }
 
-    const bigBen = new THREE.Group();
-    bigBen.position.set(-110, 0, -165);
-
-    const bigBenMesh = flushMesh(bigBenGeoms, skylineMaterial);
-    if (bigBenMesh) bigBen.add(bigBenMesh);
-
     const clockFaceMesh = flushMesh(clockFaceGeoms, clockFaceMaterial);
-    if (clockFaceMesh) bigBen.add(clockFaceMesh);
+    if (clockFaceMesh) this.add(clockFaceMesh);
 
-    // Blinking red warning beacon
+    // Blinking red warning beacon for Big Ben (world coordinates)
     const bigBenLight = new THREE.Mesh(this.beaconGeom, this.redLightMaterial);
-    bigBenLight.position.set(0, 65.2, 0);
+    bigBenLight.position.set(bbX, 65.2, bbZ);
     bigBenLight.userData = { phaseOffset: 0.08 * BLINK_PERIOD };
-    bigBen.add(bigBenLight);
+    this.add(bigBenLight);
     this.warningLights.push(bigBenLight);
 
-    this.add(bigBen);
-
     // ── 2. The Shard ─────────────────────────────────────────────────────────
-    const shardGeoms: THREE.BufferGeometry[] = [];
-
+    const shX = 130;
+    const shZ = -175;
     // Tall pyramid shape
-    bakeGeom(shardGeoms, new THREE.ConeGeometry(8.5, 78.0, 4), 0, 39.0, 0, 0, Math.PI / 4, 0);
+    bakeGeom(staticLandmarkGeoms, new THREE.ConeGeometry(8.5, 78.0, 4), shX, 39.0, shZ, 0, Math.PI / 4, 0);
     // Wing facades
-    bakeGeom(shardGeoms, new THREE.ConeGeometry(6.0, 68.0, 3), -2, 34, 1, 0, 0.5, 0);
-    bakeGeom(shardGeoms, new THREE.ConeGeometry(5.0, 58.0, 3), 2, 29, -2, 0, -0.5, 0);
+    bakeGeom(staticLandmarkGeoms, new THREE.ConeGeometry(6.0, 68.0, 3), shX - 2, 34, shZ + 1, 0, 0.5, 0);
+    bakeGeom(staticLandmarkGeoms, new THREE.ConeGeometry(5.0, 58.0, 3), shX + 2, 29, shZ - 2, 0, -0.5, 0);
 
-    const shard = new THREE.Group();
-    shard.position.set(130, 0, -175);
-
-    const shardMesh = flushMesh(shardGeoms, skylineMaterial);
-    if (shardMesh) shard.add(shardMesh);
-
+    // Blinking red warning beacon for The Shard (world coordinates)
     const shardLight = new THREE.Mesh(this.beaconGeom, this.redLightMaterial);
-    shardLight.position.set(0, 78.2, 0);
+    shardLight.position.set(shX, 78.2, shZ);
     shardLight.userData = { phaseOffset: 0.5 * BLINK_PERIOD };
-    shard.add(shardLight);
+    this.add(shardLight);
     this.warningLights.push(shardLight);
 
-    this.add(shard);
-
     // ── 3. The London Eye ─────────────────────────────────────────────────────
-    const londonEye = new THREE.Group();
-    londonEye.position.set(25, 0, -185);
+    const leX = 25;
+    const leZ = -185;
 
-    // Static base structure: legs + brace + hub → merged
-    const eyeBaseGeoms: THREE.BufferGeometry[] = [];
-    bakeGeom(eyeBaseGeoms, new THREE.BoxGeometry(1.2, 50.6, 1.2), -8.0, 24.0, 0, 0, 0, -0.322);
-    bakeGeom(eyeBaseGeoms, new THREE.BoxGeometry(1.2, 50.6, 1.2),  8.0, 24.0, 0, 0, 0,  0.322);
-    bakeGeom(eyeBaseGeoms, new THREE.BoxGeometry(1.0, 50.6, 1.0),  0,   24.0, -8.0, 0.322, 0, 0);
-    bakeGeom(eyeBaseGeoms, new THREE.CylinderGeometry(2.2, 2.2, 6.0, 8), 0, 48.0, 0, Math.PI / 2, 0, 0);
-
-    const eyeBaseMesh = flushMesh(eyeBaseGeoms, skylineMaterial, true, false);
-    if (eyeBaseMesh) londonEye.add(eyeBaseMesh);
+    // Static base structure: legs + brace + hub
+    bakeGeom(staticLandmarkGeoms, new THREE.BoxGeometry(1.2, 50.6, 1.2), leX - 8.0, 24.0, leZ, 0, 0, -0.322);
+    bakeGeom(staticLandmarkGeoms, new THREE.BoxGeometry(1.2, 50.6, 1.2), leX + 8.0, 24.0, leZ, 0, 0,  0.322);
+    bakeGeom(staticLandmarkGeoms, new THREE.BoxGeometry(1.0, 50.6, 1.0), leX,   24.0, leZ - 8.0, 0.322, 0, 0);
+    bakeGeom(staticLandmarkGeoms, new THREE.CylinderGeometry(2.2, 2.2, 6.0, 8), leX, 48.0, leZ, Math.PI / 2, 0, 0);
 
     // Static blinking hub beacon
     const hubLight = new THREE.Mesh(this.beaconGeom, this.redLightMaterial);
-    hubLight.position.set(0, 50.5, 0);
+    hubLight.position.set(leX, 50.5, leZ);
     hubLight.userData = { phaseOffset: 0.25 * BLINK_PERIOD };
-    londonEye.add(hubLight);
+    this.add(hubLight);
     this.warningLights.push(hubLight);
 
-    // Rotating wheel group
+    // Rotating wheel group (positioned in world coordinates)
     this.londonEyeWheel = new THREE.Group();
-    this.londonEyeWheel.position.set(0, 48.0, 0);
+    this.londonEyeWheel.position.set(leX, 48.0, leZ);
 
     // Wheel rings + all 8 spokes → merged into single static mesh on the wheel
     const wheelGeoms: THREE.BufferGeometry[] = [];
@@ -185,7 +171,7 @@ export class LondonSkyline extends THREE.Group {
     const wheelStructureMesh = flushMesh(wheelGeoms, skylineMaterial, true, false);
     if (wheelStructureMesh) this.londonEyeWheel.add(wheelStructureMesh);
 
-    // 8 rim warning beacons (stay as individual meshes — they animate independently)
+    // 8 rim warning beacons (stay as individual meshes — they rotate with the wheel)
     for (let i = 0; i < 8; i++) {
       const angle = (i / 8) * Math.PI * 2;
       const eyeLight = new THREE.Mesh(this.beaconGeom, this.redLightMaterial);
@@ -195,12 +181,7 @@ export class LondonSkyline extends THREE.Group {
       this.warningLights.push(eyeLight);
     }
 
-    // 16 gondolas — each pivots from a bearing ring at the rim and HANGS below it.
-    // The mount pins (wheel-space) are ALL merged into a single mesh after the loop.
-    // Each gondola is a child of the rotating wheel (so it orbits) and is counter-
-    // rotated individually in update(), keeping the pod hanging straight down through
-    // the full rotation.
-    this.londonEyeCapsules = [];
+    // 16 gondolas — using InstancedMesh to draw all 16 gondola ironworks and pods in just 2 draw calls!
     const capsuleCount = 16;
 
     // Glass pod material (transparent, laminated-glass look)
@@ -212,87 +193,87 @@ export class LondonSkyline extends THREE.Group {
       opacity: 0.7,
     });
 
-    // How far the pod hangs below its pivot ring (local -Y).
     const POD_DROP = 0.95;
 
-    // Shared base geometries for gondola ironwork + pod shell
+    // Shared base geometries for InstancedMesh setup
     const mountPinBaseGeom = new THREE.BoxGeometry(0.2, 1.3, 0.4);
     const bearingRingBaseGeom = new THREE.TorusGeometry(0.5, 0.06, 4, 16);
     const hangerArmBaseGeom = new THREE.BoxGeometry(0.06, POD_DROP, 0.06);
-    // Single ovoid pod — low detail, it's a background skyline element
     const podBaseGeom = new THREE.SphereGeometry(0.5, 10, 8);
 
     // Accumulate all mount pin geometries (baked into wheel-local space) for single merged mesh
     const allMountPinGeoms: THREE.BufferGeometry[] = [];
-
     for (let i = 0; i < capsuleCount; i++) {
       const angle = (i / capsuleCount) * Math.PI * 2;
       const mountX = Math.cos(angle) * 26.6;
       const mountY = Math.sin(angle) * 26.6;
-      // Pivot sits just outside the rim
-      const pivotX = Math.cos(angle) * 27.2;
-      const pivotY = Math.sin(angle) * 27.2;
-
-      // Mount pin → baked into wheel-local space (orbits with the rim), accumulated for merge
       bakeGeom(allMountPinGeoms, mountPinBaseGeom, mountX, mountY, 0, 0, 0, angle - Math.PI / 2);
-
-      // Gondola group — pivot at the rim. Counter-rotated each frame so local -Y = world
-      // down, letting the pod hang straight down for the full wheel rotation.
-      const gondola = new THREE.Group();
-      gondola.position.set(pivotX, pivotY, 0);
-
-      // Ironwork: pivot bearing ring (in the wheel plane) + 2 hanger struts → merged into 1 mesh
-      const gondolaIronGeoms: THREE.BufferGeometry[] = [];
-      gondolaIronGeoms.push(bearingRingBaseGeom.clone());
-      for (const sx of [-0.34, 0.34]) {
-        bakeGeom(gondolaIronGeoms, hangerArmBaseGeom, sx, -POD_DROP / 2, 0);
-      }
-      const gondolaIronMesh = flushMesh(gondolaIronGeoms, skylineMaterial, true, false);
-      if (gondolaIronMesh) gondola.add(gondolaIronMesh);
-
-      // Glass pod, hanging below the pivot — single ovoid (long axis along the axle, Z)
-      const pod = new THREE.Mesh(podBaseGeom.clone(), glassMat);
-      pod.position.y = -POD_DROP;
-      pod.scale.set(0.7, 0.6, 1.4);
-      pod.castShadow = true;
-      gondola.add(pod);
-
-      this.londonEyeWheel.add(gondola);
-      this.londonEyeCapsules.push(gondola);
     }
-
-    // Flush all mount pins into a single merged mesh on the wheel
     const mountPinMesh = flushMesh(allMountPinGeoms, skylineMaterial, true, false);
     if (mountPinMesh) this.londonEyeWheel.add(mountPinMesh);
 
-    // Dispose base gondola geometries
+    // Combine bearing ring and hanger arms for the instanced ironwork
+    const ironGeoms: THREE.BufferGeometry[] = [];
+    ironGeoms.push(bearingRingBaseGeom.clone());
+    for (const sx of [-0.34, 0.34]) {
+      bakeGeom(ironGeoms, hangerArmBaseGeom, sx, -POD_DROP / 2, 0);
+    }
+    const combinedIronGeom = mergeGeometries(ironGeoms);
+    ironGeoms.forEach(g => g.dispose());
+
+    this.londonEyeIronwork = new THREE.InstancedMesh(combinedIronGeom, skylineMaterial, capsuleCount);
+    this.londonEyeIronwork.castShadow = true;
+    this.londonEyeWheel.add(this.londonEyeIronwork);
+
+    // Scale and translate pod vertices down by POD_DROP so the pivot point remains at (0, 0, 0)
+    const podGeom = podBaseGeom.clone();
+    podGeom.scale(0.7, 0.6, 1.4);
+    podGeom.translate(0, -POD_DROP, 0);
+
+    this.londonEyePods = new THREE.InstancedMesh(podGeom, glassMat, capsuleCount);
+    this.londonEyePods.castShadow = true;
+    this.londonEyeWheel.add(this.londonEyePods);
+
+    // Initialize instanced matrices for the first frame
+    const initPos = new THREE.Vector3();
+    const initQuat = new THREE.Quaternion();
+    const initScale = new THREE.Vector3(1, 1, 1);
+    const initMatrix = new THREE.Matrix4();
+    for (let i = 0; i < capsuleCount; i++) {
+      const angle = (i / capsuleCount) * Math.PI * 2;
+      const pivotX = Math.cos(angle) * 27.2;
+      const pivotY = Math.sin(angle) * 27.2;
+
+      initPos.set(pivotX, pivotY, 0);
+      initQuat.setFromAxisAngle(new THREE.Vector3(0, 0, 1), 0);
+      initMatrix.compose(initPos, initQuat, initScale);
+
+      this.londonEyeIronwork.setMatrixAt(i, initMatrix);
+      this.londonEyePods.setMatrixAt(i, initMatrix);
+    }
+
+    // Dispose base geometries
     mountPinBaseGeom.dispose();
     bearingRingBaseGeom.dispose();
     hangerArmBaseGeom.dispose();
     podBaseGeom.dispose();
 
-    londonEye.add(this.londonEyeWheel);
-    this.add(londonEye);
+    this.add(this.londonEyeWheel);
 
     // ── 4. Westminster silhouette ─────────────────────────────────────────────
-    const westGeoms: THREE.BufferGeometry[] = [];
-
+    const wmX = -155;
+    const wmZ = -170;
     // Wide base
-    bakeGeom(westGeoms, new THREE.BoxGeometry(22.0, 14.0, 8.0), 0, 7.0, 0);
-
+    bakeGeom(staticLandmarkGeoms, new THREE.BoxGeometry(22.0, 14.0, 8.0), wmX, 7.0, wmZ);
     // Spires (columns + cone tips)
     for (const offset of [-8, -4, 4, 8]) {
-      bakeGeom(westGeoms, new THREE.BoxGeometry(1.6, 12.0, 1.6), offset, 18.0, 0);
-      bakeGeom(westGeoms, new THREE.ConeGeometry(1.1, 5.0, 4), offset, 25.5, 0, 0, Math.PI / 4, 0);
+      bakeGeom(staticLandmarkGeoms, new THREE.BoxGeometry(1.6, 12.0, 1.6), wmX + offset, 18.0, wmZ);
+      bakeGeom(staticLandmarkGeoms, new THREE.ConeGeometry(1.1, 5.0, 4), wmX + offset, 25.5, wmZ, 0, Math.PI / 4, 0);
     }
 
-    const westminster = new THREE.Group();
-    westminster.position.set(-155, 0, -170);
-
-    const westMesh = flushMesh(westGeoms, skylineMaterial);
-    if (westMesh) westminster.add(westMesh);
-
-    this.add(westminster);
+    // Flush ALL accumulated skyline landmark geoms into a single merged mesh
+    const landmarkMesh = flushMesh(staticLandmarkGeoms, skylineMaterial);
+    if (landmarkMesh) this.add(landmarkMesh);
   }
 
   private buildHorizonFill() {
@@ -480,14 +461,29 @@ export class LondonSkyline extends THREE.Group {
   }
 
   public update(delta: number, running: boolean) {
-    if (running && this.londonEyeWheel) {
+    if (running && this.londonEyeWheel && this.londonEyeIronwork && this.londonEyePods) {
       this.londonEyeWheel.rotation.z += delta * 0.03;
 
-      // Counter-rotate each gondola so its pod hangs straight down through the full rotation
       const upright = -this.londonEyeWheel.rotation.z;
-      for (const gondola of this.londonEyeCapsules) {
-        gondola.rotation.z = upright;
+      const position = new THREE.Vector3();
+      const quaternion = new THREE.Quaternion();
+      const scale = new THREE.Vector3(1, 1, 1);
+      const matrix = new THREE.Matrix4();
+
+      for (let i = 0; i < 16; i++) {
+        const angle = (i / 16) * Math.PI * 2;
+        const pivotX = Math.cos(angle) * 27.2;
+        const pivotY = Math.sin(angle) * 27.2;
+
+        position.set(pivotX, pivotY, 0);
+        quaternion.setFromAxisAngle(new THREE.Vector3(0, 0, 1), upright);
+        matrix.compose(position, quaternion, scale);
+
+        this.londonEyeIronwork.setMatrixAt(i, matrix);
+        this.londonEyePods.setMatrixAt(i, matrix);
       }
+      this.londonEyeIronwork.instanceMatrix.needsUpdate = true;
+      this.londonEyePods.instanceMatrix.needsUpdate = true;
     }
 
     // Update desynchronized warning lights visibility based on their respective phase offsets

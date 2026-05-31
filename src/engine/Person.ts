@@ -1,5 +1,20 @@
 import * as THREE from 'three';
 
+// Shared module-level geometries to avoid duplicate GPU buffer allocations
+const upperLength = 0.36;
+const forearmLength = 0.33;
+
+const torsoGeom = new THREE.BoxGeometry(0.525, 1.08, 0.54);
+const headGeom = new THREE.SphereGeometry(0.345, 16, 10);
+const helmetCapGeom = new THREE.SphereGeometry(0.36, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2);
+const upperArmGeom = new THREE.BoxGeometry(0.165, upperLength, 0.165);
+const forearmGeom = new THREE.BoxGeometry(0.135, forearmLength, 0.135);
+const handGeom = new THREE.BoxGeometry(0.12, 0.12, 0.12);
+
+// Leg geometry is translated so its origin is at the hip joint pivot
+const legGeom = new THREE.BoxGeometry(0.24, 0.76, 0.24);
+legGeom.translate(0, -0.38, 0);
+
 export interface PersonConfig {
   clothColor: number;
   helmetColor: number;
@@ -45,38 +60,21 @@ export class Person {
     });
 
     // Torso (waist/center of the body)
-    // Box dimensions matching original jockey: 0.35 x 0.72 x 0.36
-    // Scaled by 1.5: 0.525 x 1.08 x 0.54
-    this.torso = new THREE.Mesh(
-      new THREE.BoxGeometry(0.525, 1.08, 0.54),
-      clothMaterial
-    );
+    this.torso = new THREE.Mesh(torsoGeom, clothMaterial);
     this.torso.castShadow = true;
     this.group.add(this.torso);
 
     // Head / Helmet (grouped under torso for easy hierarchical posing)
-    // Center relative offset is (0.18, 0.705, 0)
-    this.head = new THREE.Mesh(
-      new THREE.SphereGeometry(0.345, 16, 10),
-      skinMaterial
-    );
+    this.head = new THREE.Mesh(headGeom, skinMaterial);
     this.head.position.set(0.18, 0.705, 0);
     this.head.castShadow = true;
     this.torso.add(this.head);
 
     // Add a helmet cap on top of head
-    const helmetCap = new THREE.Mesh(
-      new THREE.SphereGeometry(0.36, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2),
-      helmetMaterial
-    );
+    const helmetCap = new THREE.Mesh(helmetCapGeom, helmetMaterial);
     helmetCap.position.set(0, 0.075, 0);
     helmetCap.castShadow = true;
     this.head.add(helmetCap);
-
-    // Arms (holding reins)
-    // Upper arm and forearm segments to allow realistic elbow bending
-    const upperLength = 0.36;
-    const forearmLength = 0.33;
 
     // Left Arm Group (Shoulder pivot)
     this.leftArm = new THREE.Group();
@@ -84,10 +82,7 @@ export class Person {
     this.torso.add(this.leftArm);
 
     // Left Upper Arm Mesh
-    const leftUpperArmMesh = new THREE.Mesh(
-      new THREE.BoxGeometry(0.165, upperLength, 0.165),
-      clothMaterial
-    );
+    const leftUpperArmMesh = new THREE.Mesh(upperArmGeom, clothMaterial);
     leftUpperArmMesh.position.set(0, -upperLength / 2, 0);
     leftUpperArmMesh.castShadow = true;
     this.leftArm.add(leftUpperArmMesh);
@@ -98,19 +93,13 @@ export class Person {
     this.leftArm.add(this.leftForearm);
 
     // Left Forearm Mesh
-    const leftForearmMesh = new THREE.Mesh(
-      new THREE.BoxGeometry(0.135, forearmLength, 0.135),
-      clothMaterial
-    );
+    const leftForearmMesh = new THREE.Mesh(forearmGeom, clothMaterial);
     leftForearmMesh.position.set(0, -forearmLength / 2, 0);
     leftForearmMesh.castShadow = true;
     this.leftForearm.add(leftForearmMesh);
 
     // Left Hand (skin)
-    this.leftHand = new THREE.Mesh(
-      new THREE.BoxGeometry(0.12, 0.12, 0.12),
-      skinMaterial
-    );
+    this.leftHand = new THREE.Mesh(handGeom, skinMaterial);
     this.leftHand.position.set(0, -forearmLength - 0.06, 0);
     this.leftHand.castShadow = true;
     this.leftForearm.add(this.leftHand);
@@ -121,10 +110,7 @@ export class Person {
     this.torso.add(this.rightArm);
 
     // Right Upper Arm Mesh
-    const rightUpperArmMesh = new THREE.Mesh(
-      new THREE.BoxGeometry(0.165, upperLength, 0.165),
-      clothMaterial
-    );
+    const rightUpperArmMesh = new THREE.Mesh(upperArmGeom, clothMaterial);
     rightUpperArmMesh.position.set(0, -upperLength / 2, 0);
     rightUpperArmMesh.castShadow = true;
     this.rightArm.add(rightUpperArmMesh);
@@ -135,36 +121,25 @@ export class Person {
     this.rightArm.add(this.rightForearm);
 
     // Right Forearm Mesh
-    const rightForearmMesh = new THREE.Mesh(
-      new THREE.BoxGeometry(0.135, forearmLength, 0.135),
-      clothMaterial
-    );
+    const rightForearmMesh = new THREE.Mesh(forearmGeom, clothMaterial);
     rightForearmMesh.position.set(0, -forearmLength / 2, 0);
     rightForearmMesh.castShadow = true;
     this.rightForearm.add(rightForearmMesh);
 
     // Right Hand (skin)
-    this.rightHand = new THREE.Mesh(
-      new THREE.BoxGeometry(0.12, 0.12, 0.12),
-      skinMaterial
-    );
+    this.rightHand = new THREE.Mesh(handGeom, skinMaterial);
     this.rightHand.position.set(0, -forearmLength - 0.06, 0);
     this.rightHand.castShadow = true;
     this.rightForearm.add(this.rightHand);
 
     // Legs (grip the horse body/saddle)
-    // Pivot at hips: (0.12, -0.54, ±0.33) relative to torso center
-    // Translate geometry downwards so the pivot is at the top of the leg mesh
-    const legGeometry = new THREE.BoxGeometry(0.24, 0.76, 0.24);
-    legGeometry.translate(0, -0.38, 0);
-
-    this.leftLeg = new THREE.Mesh(legGeometry, darkMaterial);
+    this.leftLeg = new THREE.Mesh(legGeom, darkMaterial);
     this.leftLeg.position.set(0.12, -0.54, 0.33);
     this.leftLeg.rotation.set(0.2, 0, -0.5); // default sitting/straddle angle
     this.leftLeg.castShadow = true;
     this.torso.add(this.leftLeg);
 
-    this.rightLeg = new THREE.Mesh(legGeometry, darkMaterial);
+    this.rightLeg = new THREE.Mesh(legGeom, darkMaterial);
     this.rightLeg.position.set(0.12, -0.54, -0.33);
     this.rightLeg.rotation.set(-0.2, 0, -0.5); // default sitting/straddle angle
     this.rightLeg.castShadow = true;

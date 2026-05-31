@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { createTexturedMaterial } from './Textures';
 import {
   TRACK_INNER_RADIUS,
@@ -27,21 +28,26 @@ export function addTrackSurface(scene: THREE.Scene) {
   scene.add(track);
 
   const laneMaterial = new THREE.MeshStandardMaterial({ color: 0xd7b285, roughness: 0.85 });
+  const laneGeoms: THREE.BufferGeometry[] = [];
   for (let laneIndex = 1; laneIndex < TRACK_LANE_COUNT; laneIndex += 1) {
     const laneRadius = TRACK_INNER_RADIUS + TRACK_LANE_WIDTH * laneIndex;
-    const laneLine = new THREE.Mesh(
-      new THREE.TubeGeometry(
-        createStadiumCurve(TRACK_STRAIGHT_HALF_LENGTH, laneRadius, 0.11, 28),
-        192,
-        0.035,
-        6,
-        true,
-      ),
-      laneMaterial,
+    const g = new THREE.TubeGeometry(
+      createStadiumCurve(TRACK_STRAIGHT_HALF_LENGTH, laneRadius, 0.11, 28),
+      192,
+      0.035,
+      6,
+      true,
     );
-    laneLine.name = `lane_line_${laneIndex}`;
+    laneGeoms.push(g);
+  }
+
+  if (laneGeoms.length > 0) {
+    const mergedLaneGeom = mergeGeometries(laneGeoms);
+    const laneLine = new THREE.Mesh(mergedLaneGeom, laneMaterial);
+    laneLine.name = 'lane_lines';
     laneLine.receiveShadow = true;
     scene.add(laneLine);
+    laneGeoms.forEach(g => g.dispose());
   }
 }
 
@@ -52,23 +58,28 @@ export function addTrackRails(scene: THREE.Scene) {
     { radius: TRACK_OUTER_RADIUS + 0.65 },
   ];
 
+  const railGeoms: THREE.BufferGeometry[] = [];
   railLines.forEach(({ radius }) => {
     for (const height of [0.82, 1.42]) {
-      const rail = new THREE.Mesh(
-        new THREE.TubeGeometry(
-          createStadiumCurve(TRACK_STRAIGHT_HALF_LENGTH, radius, height, 28),
-          192,
-          0.09,
-          8,
-          true,
-        ),
-        railMaterial,
+      const g = new THREE.TubeGeometry(
+        createStadiumCurve(TRACK_STRAIGHT_HALF_LENGTH, radius, height, 28),
+        192,
+        0.09,
+        8,
+        true,
       );
-      rail.name = 'track_rail';
-      rail.castShadow = true;
-      scene.add(rail);
+      railGeoms.push(g);
     }
   });
+
+  if (railGeoms.length > 0) {
+    const mergedRailGeom = mergeGeometries(railGeoms);
+    const rail = new THREE.Mesh(mergedRailGeom, railMaterial);
+    rail.name = 'track_rails';
+    rail.castShadow = true;
+    scene.add(rail);
+    railGeoms.forEach(g => g.dispose());
+  }
 
   const postGeom = new THREE.CylinderGeometry(0.11, 0.14, 1.8, 8);
   const postMatrices: THREE.Matrix4[] = [];
