@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Horse } from './Horse';
 
-export type SceneCameraMode = 'free' | 'start_pan' | 'finish_view' | 'start_hold' | 'start_follow' | 'transitioning';
+export type SceneCameraMode = 'free' | 'start_pan' | 'finish_view' | 'start_hold' | 'start_follow' | 'grandstand_top' | 'curve_iso' | 'rail_cam' | 'transitioning';
 export type RequestedCameraMode = Exclude<SceneCameraMode, 'transitioning'>;
 export type HorseCameraMode = 'free' | 'follow' | 'jockey';
 
@@ -148,6 +148,36 @@ export class CameraController {
         this.camera.lookAt(this.scratchVec1.set(-31.0, 1.8, -24.0));
         return;
       }
+    }
+
+    if (this.mode === 'grandstand_top') {
+      this.timer += delta;
+      const driftX = Math.sin(this.timer * 0.15) * 8.0;
+      this.camera.position.set(driftX, 30.0, -42.0);
+      this.camera.lookAt(this.scratchVec1.set(0, 2.0, 5.0));
+      return;
+    }
+
+    if (this.mode === 'curve_iso') {
+      this.timer += delta;
+      const angle = this.timer * 0.1;
+      this.camera.position.set(40.0 + Math.sin(angle) * 3.0, 5.5 + Math.cos(angle) * 1.0, -18.0);
+      this.camera.lookAt(this.scratchVec1.set(31.0, 1.2, 8.0));
+      return;
+    }
+
+    if (this.mode === 'rail_cam') {
+      this.timer += delta;
+      const leadingHorse = this.getLeadingHorse(context.horses);
+      if (leadingHorse) {
+        const horsePos = leadingHorse.group.position;
+        this.camera.position.set(-5.0, 1.2, -13.0);
+        this.camera.lookAt(horsePos);
+      } else {
+        this.camera.position.set(-5.0, 1.2, -13.0);
+        this.camera.lookAt(this.scratchVec1.set(0, 1.0, -24.0));
+      }
+      return;
     }
 
     if (context.selectedHorse && this.selectedHorseMode === 'follow') {

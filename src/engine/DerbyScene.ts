@@ -47,7 +47,9 @@ export class DerbyScene {
   public onHorseSelected?: (horse: Horse | null) => void;
   public onHorsePositionUpdate?: (pos: { x: number; y: number; isBehind: boolean } | null) => void;
   public onCameraLockUpdate?: (locked: boolean) => void;
+  public onCameraModeUpdate?: (mode: string) => void;
   private lastSentCameraLock = false;
+  private lastSentCameraMode = 'start_hold';
   private readonly horsePicker: HorsePicker;
   
   private sunLight?: THREE.DirectionalLight;
@@ -225,6 +227,12 @@ export class DerbyScene {
     if (currentLock !== this.lastSentCameraLock) {
       this.lastSentCameraLock = currentLock;
       this.onCameraLockUpdate?.(currentLock);
+    }
+
+    const currentMode = this.cameraController.currentMode;
+    if (currentMode !== this.lastSentCameraMode) {
+      this.lastSentCameraMode = currentMode;
+      this.onCameraModeUpdate?.(currentMode);
     }
 
     if (this.running) {

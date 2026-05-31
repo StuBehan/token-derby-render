@@ -25,13 +25,15 @@ button,
 select {
   min-width: 84px;
   height: 40px;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
   color: #fff8ec;
-  background: rgba(22, 26, 20, 0.72);
+  background: rgba(15, 18, 16, 0.7);
   font: inherit;
   font-size: 0.9rem;
   backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.1s ease;
 }
 
 button {
@@ -50,7 +52,8 @@ select option {
 
 button:hover,
 select:hover {
-  background: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.18);
 }
 
 .app-shell {
@@ -135,23 +138,69 @@ select:hover {
   font-weight: 700;
 }
 
-.hud-controls {
+.controls-pane {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  gap: 12px;
+  background: rgba(15, 18, 16, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 12px;
+  padding: 16px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   pointer-events: auto;
+  gap: 14px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  min-width: 330px;
 }
 
-.time-control {
+.control-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.control-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.control-row .control-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.45);
+  white-space: nowrap;
+}
+
+.control-row select {
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  outline: none;
+  padding-right: 4px;
+  min-width: unset;
+  height: auto;
+  backdrop-filter: none;
+  text-align: right;
+  text-align-last: right;
+}
+
+.control-row select option {
+  background: #121612;
+  color: #fff;
+}
+
+.time-inputs {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px 16px;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  border-radius: 6px;
-  background: rgba(22, 26, 20, 0.72);
-  backdrop-filter: blur(12px);
 }
 
 .clock-display {
@@ -164,10 +213,10 @@ select:hover {
   text-align: center;
 }
 
-.time-control input[type="range"] {
+.time-row input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
-  width: 140px;
+  width: 120px;
   height: 6px;
   border-radius: 3px;
   background: rgba(255, 255, 255, 0.2);
@@ -175,7 +224,7 @@ select:hover {
   cursor: pointer;
 }
 
-.time-control input[type="range"]::-webkit-slider-thumb {
+.time-row input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   width: 16px;
@@ -187,11 +236,11 @@ select:hover {
   transition: transform 0.1s ease;
 }
 
-.time-control input[type="range"]::-webkit-slider-thumb:hover {
+.time-row input[type="range"]::-webkit-slider-thumb:hover {
   transform: scale(1.2);
 }
 
-.time-control input[type="range"]::-moz-range-thumb {
+.time-row input[type="range"]::-moz-range-thumb {
   width: 16px;
   height: 16px;
   border: none;
@@ -202,7 +251,7 @@ select:hover {
   transition: transform 0.1s ease;
 }
 
-.time-control input[type="range"]::-moz-range-thumb:hover {
+.time-row input[type="range"]::-moz-range-thumb:hover {
   transform: scale(1.2);
 }
 
@@ -214,9 +263,10 @@ select:hover {
     flex-direction: column;
   }
 
-  .hud-controls {
-    align-items: flex-start;
+  .controls-pane {
+    align-items: stretch;
     width: 100%;
+    min-width: unset;
   }
 
   .race-actions {
@@ -397,7 +447,7 @@ select:hover {
   position: absolute;
   top: 20px;
   left: 20px;
-  bottom: 20px;
+  max-height: calc(100vh - 40px);
   width: 380px;
   background: rgba(16, 20, 15, 0.82);
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -606,50 +656,82 @@ td.col-tokens {
 
 .leave-btn {
   margin: 16px 20px;
-  border: 1px solid rgba(231, 76, 60, 0.4);
-  background: rgba(231, 76, 60, 0.15);
+  border: 1px solid rgba(231, 76, 60, 0.3);
+  background: rgba(231, 76, 60, 0.1);
   color: #ff9f93;
   width: calc(100% - 40px);
+  border-radius: 8px;
 }
 
 .leave-btn:hover {
-  background: rgba(231, 76, 60, 0.3);
+  background: rgba(231, 76, 60, 0.22);
+  border-color: rgba(231, 76, 60, 0.45);
 }
 
 /* Join Live Race Form in HUD */
-.join-race-form {
+.join-input-group {
   display: flex;
+  align-items: center;
   gap: 8px;
-  pointer-events: auto;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 2px 4px 2px 8px;
 }
 
-.join-race-form input {
-  width: 120px;
-  height: 40px;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  border-radius: 6px;
-  background: rgba(22, 26, 20, 0.72);
+.join-input-group input {
+  width: 90px;
+  height: 28px;
+  border: none;
+  background: transparent;
   color: #fff8ec;
-  padding: 0 12px;
+  padding: 0;
   font: inherit;
   font-size: 0.9rem;
   text-transform: uppercase;
   text-align: center;
-}
-
-.join-race-form input:focus {
-  border-color: #e7d17c;
   outline: none;
 }
 
 .join-btn {
-  border: 1px solid rgba(231, 209, 124, 0.4);
-  background: rgba(231, 209, 124, 0.15);
+  border: 1px solid rgba(231, 209, 124, 0.3);
+  background: rgba(231, 209, 124, 0.1);
   color: #e7d17c;
+  border-radius: 6px;
+  height: 28px;
+  min-width: 68px;
+  font-size: 0.8rem;
+  padding: 0 10px;
+  transition: background 0.2s ease, border-color 0.2s ease;
+  backdrop-filter: none;
 }
 
 .join-btn:hover {
-  background: rgba(231, 209, 124, 0.35);
+  background: rgba(231, 209, 124, 0.22);
+  border-color: rgba(231, 209, 124, 0.45);
+}
+
+.active-code {
+  width: 90px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #e7d17c;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.leave-btn-mini {
+  border-color: rgba(231, 76, 60, 0.3) !important;
+  background: rgba(231, 76, 60, 0.1) !important;
+  color: #ff9f93 !important;
+}
+
+.leave-btn-mini:hover {
+  background: rgba(231, 76, 60, 0.22) !important;
+  border-color: rgba(231, 76, 60, 0.45) !important;
 }
 
 .hud-error-message {
@@ -666,7 +748,7 @@ td.col-tokens {
     top: 90px;
     left: 14px;
     right: 14px;
-    bottom: 14px;
+    max-height: calc(100vh - 104px);
     width: auto;
   }
 }
@@ -1190,4 +1272,36 @@ td.col-xp-gain {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+
+
+.pill-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.action-btn {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff8ec;
+  border-radius: 6px;
+  height: 28px;
+  min-width: 60px;
+  font-size: 0.8rem;
+  padding: 0 10px;
+  transition: background 0.2s ease, border-color 0.2s ease;
+  backdrop-filter: none;
+}
+
+.action-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: rgba(255, 255, 255, 0.02);
+  border-color: rgba(255, 255, 255, 0.08);
 }

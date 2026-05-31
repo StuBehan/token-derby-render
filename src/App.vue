@@ -30,6 +30,14 @@ function isHorseInactive(horse: any): boolean {
 
 const isPolling = ref(false);
 const errorMessage = ref('');
+
+const sceneCamMode = ref('start_hold');
+
+function onSceneCamModeChange(event: Event) {
+  const nextMode = (event.target as HTMLSelectElement).value;
+  sceneCamMode.value = nextMode;
+  derbyScene?.setCameraMode(nextMode as any);
+}
 const raceClient = new RaceClient();
 const timeLeftSeconds = ref(0);
 let countdownInterval: number | null = null;
@@ -450,6 +458,11 @@ onMounted(() => {
   };
   isCameraLocked.value = derbyScene.isCameraLocked;
 
+  // Set up the camera mode update callback
+  derbyScene.onCameraModeUpdate = (mode: string) => {
+    sceneCamMode.value = mode;
+  };
+
   derbyScene.onHorseSelected = (horse) => {
     selectedHorse.value = horse;
     if (horse && derbyScene) {
@@ -580,10 +593,6 @@ function toggleRace() {
 function resetRace() {
   isRunning.value = true;
   derbyScene?.reset();
-}
-
-function triggerStartCam() {
-  derbyScene?.setCameraMode('start_pan');
 }
 
 function updateWeather(event: Event) {
@@ -741,7 +750,7 @@ function formatTimeLeft(seconds: number) {
         
         <div class="panel-body">
           <div class="time-left-display">
-            <span class="time-label">Time Remaining:</span>
+            <span class="time-label">{{ joinedRace.status === 'pending' ? 'Time Until Start:' : 'Time Remaining:' }}</span>
             <span class="time-val font-mono">{{ formatTimeLeft(timeLeftSeconds) }}</span>
           </div>
 
@@ -797,8 +806,6 @@ function formatTimeLeft(seconds: number) {
             </table>
           </div>
         </div>
-
-        <button type="button" class="leave-btn" @click="leaveRace">Leave Live Race</button>
       </div>
 
       <!-- Achievement Toasts Container -->
@@ -827,49 +834,85 @@ function formatTimeLeft(seconds: number) {
           <h1>Race Visual Engine</h1>
         </div>
 
-        <div class="hud-controls">
-          <!-- Join Live Race Form -->
-          <div v-if="!joinedRace" class="join-race-form">
-            <input 
-              v-model="joinCodeInput"
-              type="text" 
-              placeholder="Join Code" 
-              aria-label="Race Join Code"
-              @keydown.enter="joinRace"
-            />
-            <button type="button" class="join-btn" :disabled="isPolling" @click="joinRace">
-              {{ isPolling ? 'Watching...' : 'Watch' }}
-            </button>
+        <div class="controls-pane">
+          <!-- 1. Join/Leave Live Race Form (Race Code) -->
+          <div class="control-row join-row">
+            <span class="control-label">Race Code:</span>
+            <div v-if="!joinedRace" class="join-input-group">
+              <input 
+                v-model="joinCodeInput"
+                type="text" 
+                placeholder="JOIN CODE" 
+                aria-label="Race Join Code"
+                @keydown.enter="joinRace"
+              />
+              <button type="button" class="join-btn" :disabled="isPolling" @click="joinRace">
+                {{ isPolling ? 'Watching...' : 'Watch' }}
+              </button>
+            </div>
+            <div v-else class="join-input-group joined-group">
+              <span class="active-code font-mono">{{ joinedRace.join_code }}</span>
+              <button type="button" class="join-btn leave-btn-mini" @click="leaveRace">
+                Leave
+              </button>
+            </div>
           </div>
           <div v-if="errorMessage" class="hud-error-message font-mono">
             {{ errorMessage }}
           </div>
 
-          <div class="time-control" v-if="!joinedRace">
-            <span class="clock-display" aria-live="polite">{{ formattedTime }}</span>
-            <input 
-              type="range" 
-              min="0" 
-              max="23.99" 
-              step="0.05" 
-              :value="timeOfDayRef" 
-              aria-label="Time of Day Slider"
-              @input="onTimeSliderInput" 
-            />
+          <!-- 2. Camera views dropdown (Camera) -->
+          <div class="control-row camera-row">
+            <span class="control-label">Camera:</span>
+            <select :value="sceneCamMode" aria-label="Camera View" @change="onSceneCamModeChange">
+              <option value="free">Orbit (Free)</option>
+              <option value="start_hold">Overlook Start</option>
+              <option value="start_follow">Start Follow</option>
+              <option value="start_pan">Panoramic Pan</option>
+              <option value="finish_view">Finish Line</option>
+              <option value="grandstand_top">Grandstand Summit</option>
+              <option value="curve_iso">Curve Isometric</option>
+              <option value="rail_cam">Rail Cam</option>
+            </select>
           </div>
 
-          <div class="race-actions" v-if="!joinedRace">
+          <!-- 3. Weather Selector (Weather) -->
+          <div class="control-row weather-row" v-if="!joinedRace">
+            <span class="control-label">Weather:</span>
             <select :value="weather" aria-label="Weather" @change="updateWeather">
               <option value="light_cloud">Light Cloud</option>
               <option value="very_cloudy">Very Cloudy</option>
               <option value="rainy">Rain</option>
               <option value="storm">Storm</option>
             </select>
-            <button type="button" @click="toggleRace">
-              {{ isRunning ? 'Pause' : 'Run' }}
-            </button>
-            <button type="button" @click="resetRace">Reset</button>
-            <button type="button" @click="triggerStartCam">🎥 Start Cam</button>
+          </div>
+
+          <!-- 4. Time of Day Control (Time) -->
+          <div class="control-row time-row" v-if="!joinedRace">
+            <span class="control-label">Time:</span>
+            <div class="time-inputs">
+              <span class="clock-display" aria-live="polite">{{ formattedTime }}</span>
+              <input 
+                type="range" 
+                min="0" 
+                max="23.99" 
+                step="0.05" 
+                :value="timeOfDayRef" 
+                aria-label="Time of Day Slider"
+                @input="onTimeSliderInput" 
+              />
+            </div>
+          </div>
+
+          <!-- 5. Simulation Actions (Sim) -->
+          <div class="control-row sim-row" v-if="!joinedRace">
+            <span class="control-label">Sim:</span>
+            <div class="pill-buttons">
+              <button type="button" class="action-btn" @click="toggleRace">
+                {{ isRunning ? 'Pause' : 'Run' }}
+              </button>
+              <button type="button" class="action-btn" @click="resetRace">Reset</button>
+            </div>
           </div>
         </div>
       </div>
