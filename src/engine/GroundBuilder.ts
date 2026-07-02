@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { createTexturedMaterial } from './Textures';
 import { TRACK_INNER_RADIUS, TRACK_STRAIGHT_HALF_LENGTH, createStadiumShape } from './TrackLayout';
+import type { TerrainPalette } from './locations/Location';
 
-export function addGroundSurfaces(scene: THREE.Scene) {
+export function addGroundSurfaces(scene: THREE.Scene, terrain: TerrainPalette) {
   const grass = new THREE.Mesh(
     new THREE.PlaneGeometry(360, 260),
-    createTexturedMaterial('grass', 0x4f7b3f, 46, 34, { roughness: 0.95 }),
+    createTexturedMaterial('terrain', terrain.grassColor, 46, 34, { roughness: 0.95 }),
   );
   grass.name = 'grass';
   grass.rotation.x = -Math.PI / 2;
@@ -14,7 +15,7 @@ export function addGroundSurfaces(scene: THREE.Scene) {
 
   const infield = new THREE.Mesh(
     new THREE.ShapeGeometry(createStadiumShape(TRACK_STRAIGHT_HALF_LENGTH, TRACK_INNER_RADIUS), 96),
-    createTexturedMaterial('infield', 0x6d934a, 14, 14, { roughness: 0.9 }),
+    createTexturedMaterial('terrain', terrain.infieldColor, 14, 14, { roughness: 0.9 }),
   );
   infield.name = 'infield';
   infield.rotation.x = -Math.PI / 2;

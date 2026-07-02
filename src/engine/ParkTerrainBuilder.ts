@@ -1,10 +1,18 @@
 import * as THREE from 'three';
 import { createTexturedMaterial, getSurfaceTexture } from './Textures';
 import { TAU, createPathAwareHills, isOnParkPath } from './ParkLayout';
+import { createIndianCanopyGeometry } from './IndianCanopyTree';
+import type { TerrainPalette } from './locations/Location';
 
-export function addParkTerrain(scene: THREE.Scene) {
-  const hillMaterial = createTexturedMaterial('hill', 0x637854, 8, 3, { roughness: 1 });
-  const farHillMaterial = createTexturedMaterial('hill', 0x819071, 7, 3, { roughness: 1 });
+// Deterministic pseudo-random rotation so instanced canopy meshes don't look perfectly radial
+function noiseRotation(seed: number): number {
+  const v = Math.sin(seed * 91.7) * 43758.5453;
+  return (v - Math.floor(v)) * TAU;
+}
+
+export function addParkTerrain(scene: THREE.Scene, terrain: TerrainPalette) {
+  const hillMaterial = createTexturedMaterial('terrain', terrain.hillColor, 8, 3, { roughness: 1 });
+  const farHillMaterial = createTexturedMaterial('terrain', terrain.farHillColor, 7, 3, { roughness: 1 });
 
   const hills = [
     { x: -96, z: -108, width: 92, height: 15, depth: 10, color: farHillMaterial },
@@ -25,18 +33,21 @@ export function addParkTerrain(scene: THREE.Scene) {
     scene.add(mound);
   }
 
-  const canopyMaterials = [0x2f4a2e, 0x41643a, 0x5d7446].map(
+  const canopyMaterials = terrain.canopyColors.map(
     (color) => new THREE.MeshStandardMaterial({
       color,
-      map: getSurfaceTexture('leaves', 3, 3),
+      map: getSurfaceTexture('terrain', 3, 3),
       roughness: 0.88,
     }),
   );
   const trunkMaterial = createTexturedMaterial('bark', 0x483626, 2, 6, { roughness: 0.88 });
 
+  const isIndianStyle = terrain.treeStyle === 'indian';
+
   const trunkMatrices: THREE.Matrix4[] = [];
   const pineMatrices: THREE.Matrix4[][] = canopyMaterials.map(() => []);
   const deciduousMatrices: THREE.Matrix4[][] = canopyMaterials.map(() => []);
+  const umbrellaMatrices: THREE.Matrix4[][] = canopyMaterials.map(() => []);
 
   let placedTrees = 0;
   const rings = [
@@ -58,8 +69,14 @@ export function addParkTerrain(scene: THREE.Scene) {
       if (Math.abs(x) < 95 && Math.abs(z) < 62) continue;
 
       const seedIndex = placedTrees;
-      const height = 6.4 + (seedIndex % 5) * 0.75;
-      const canopyRadius = 3.2 + (seedIndex % 3) * 0.42;
+      // Indian umbrella trees get a much wider height/size range so the treeline
+      // doesn't read as a uniform flat hedge; temperate trees keep their original range.
+      const height = isIndianStyle
+        ? 4.0 + (seedIndex % 9) * 1.6
+        : 6.4 + (seedIndex % 5) * 0.75;
+      const canopyRadius = isIndianStyle
+        ? (3.0 + (seedIndex % 4) * 0.55) * 0.85
+        : 3.2 + (seedIndex % 3) * 0.42;
       const isPine = seedIndex % 3 === 0;
       const matIdx = seedIndex % canopyMaterials.length;
 
@@ -77,7 +94,20 @@ export function addParkTerrain(scene: THREE.Scene) {
         new THREE.Vector3(0.24, shaftHeight, 0.24),
       ));
 
-      if (isPine) {
+      if (isIndianStyle) {
+        // Broad, low-spreading crown (gulmohar/neem/banyan-like), single straight trunk.
+        // Canopy height scales independently of width (0.5-1.4x) for real shape variety —
+        // some squat and mushroom-flat, some noticeably taller and rounder.
+        const canopyWidth = canopyRadius * 1.55;
+        const canopyFlatness = 0.5 + (seedIndex % 7) * 0.15;
+        const canopyHeight = canopyRadius * canopyFlatness;
+        const rotationY = noiseRotation(seedIndex);
+        umbrellaMatrices[matIdx].push(new THREE.Matrix4().compose(
+          new THREE.Vector3(x, height - canopyHeight * 0.15, z),
+          new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rotationY, 0)),
+          new THREE.Vector3(canopyWidth, canopyHeight, canopyWidth),
+        ));
+      } else if (isPine) {
         const layers = 3;
         const layerSpacing = canopyRadius * 0.52;
         for (let l = 0; l < layers; l += 1) {
@@ -161,6 +191,18 @@ export function addParkTerrain(scene: THREE.Scene) {
       deciduousMesh.castShadow = true;
       matrices.forEach((matrix, index) => deciduousMesh.setMatrixAt(index, matrix));
       scene.add(deciduousMesh);
+    }
+  }
+
+  const umbrellaGeom = createIndianCanopyGeometry();
+  for (let m = 0; m < canopyMaterials.length; m += 1) {
+    const matrices = umbrellaMatrices[m];
+    if (matrices.length > 0) {
+      const umbrellaMesh = new THREE.InstancedMesh(umbrellaGeom, canopyMaterials[m], matrices.length);
+      umbrellaMesh.name = 'tree_umbrella';
+      umbrellaMesh.castShadow = true;
+      matrices.forEach((matrix, index) => umbrellaMesh.setMatrixAt(index, matrix));
+      scene.add(umbrellaMesh);
     }
   }
 }

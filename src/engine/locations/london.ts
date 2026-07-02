@@ -20,6 +20,14 @@ export const londonLocation: Location = {
     longitude: -0.1278,
     timezone: 'Europe/London',
   },
+  terrain: {
+    grassColor: 0x4f7b3f,
+    infieldColor: 0x6d934a,
+    hillColor: 0x637854,
+    farHillColor: 0x819071,
+    canopyColors: [0x2f4a2e, 0x41643a, 0x5d7446],
+    treeStyle: 'temperate',
+  },
   createLandmarks: () => new LondonSkyline(),
   buildHorizonBuilding: (position, index, rotationY) =>
     new TerraceHouse(position, { index, brickMaterials, rotationY }).group,

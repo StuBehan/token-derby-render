@@ -11,7 +11,8 @@ type TextureKind =
   | 'bark'
   | 'leaves'
   | 'brick'
-  | 'slate';
+  | 'slate'
+  | 'terrain';
 
 const textureCache = new Map<string, THREE.CanvasTexture>();
 
@@ -27,6 +28,9 @@ const palettes: Record<TextureKind, number[]> = {
   leaves: [0x2f4a2e, 0x41643a, 0x5d7446, 0x263f29],
   brick: [0x746356, 0x8d7462, 0x9a7d68, 0x5f554e],
   slate: [0x2a2826, 0x383532, 0x484542, 0x565350],
+  // Near-neutral so a per-location tint color fully controls the resulting hue,
+  // rather than fighting a hardcoded palette (used for grass/hill/canopy surfaces).
+  terrain: [0xc4c4c0, 0xd0d0cc, 0xdadad6, 0xb8b8b4],
 };
 
 function colorToCss(hex: number) {
@@ -54,7 +58,7 @@ function createNoiseTexture(kind: TextureKind, size = 128) {
   for (let i = 0; i < size * size * 0.42; i += 1) {
     const color = palette[Math.floor(Math.random() * palette.length)];
     const alpha = 0.16 + Math.random() * 0.22;
-    const radius = kind === 'grass' || kind === 'infield' || kind === 'hill' || kind === 'leaves'
+    const radius = kind === 'grass' || kind === 'infield' || kind === 'hill' || kind === 'leaves' || kind === 'terrain'
       ? 0.7 + Math.random() * 1.9
       : 0.45 + Math.random() * 1.35;
 
@@ -63,7 +67,7 @@ function createNoiseTexture(kind: TextureKind, size = 128) {
     ctx.fillRect(Math.random() * size, Math.random() * size, radius, radius);
   }
 
-  if (kind === 'grass' || kind === 'infield' || kind === 'hill' || kind === 'leaves') {
+  if (kind === 'grass' || kind === 'infield' || kind === 'hill' || kind === 'leaves' || kind === 'terrain') {
     ctx.globalAlpha = 0.14;
     for (let i = 0; i < 260; i += 1) {
       const x = Math.random() * size;

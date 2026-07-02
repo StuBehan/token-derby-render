@@ -36,14 +36,14 @@ export function buildDerbyWorld(
   const lights = createSceneLights(scene);
   const skyDome = createSkyDome();
   scene.add(skyDome.mesh);
-  addParkTerrain(scene);
+  addParkTerrain(scene, location.terrain);
 
   const skyline = location.createLandmarks();
   skyline.name = 'skyline';
   scene.add(skyline);
 
   cloudSystem.addClouds();
-  addGroundSurfaces(scene);
+  addGroundSurfaces(scene, location.terrain);
   addParkDetails(scene, streetLights, location);
   addTrackSurface(scene);
   addTrackRails(scene);

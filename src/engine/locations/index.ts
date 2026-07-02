@@ -1,9 +1,10 @@
 import { londonLocation } from './london';
+import { indoreLocation } from './indore/indore';
 import type { Location } from './Location';
 
 export type { Location, LandmarkSet, LocationWeatherConfig } from './Location';
 
-export const locations: Location[] = [londonLocation];
+export const locations: Location[] = [londonLocation, indoreLocation];
 
 export const defaultLocation: Location = londonLocation;
 

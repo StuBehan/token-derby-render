@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { createTexturedMaterial } from './Textures';
+import { addHorizonGround } from './locations/horizonGround';
 
 // Warning light blink timing configuration (in seconds)
 const BLINK_PERIOD = 4.8;
@@ -304,7 +304,7 @@ export class LondonSkyline extends THREE.Group {
       { label: 'E', startX: 175, startZ: -150, dx: 0, dz: 1, normalX: 1, normalZ: 0, length: 300, facingY: Math.PI / 2 },
     ];
 
-    this.addHorizonGround();
+    addHorizonGround(this);
 
     // Exclusion zones where named landmarks sit
     const exclusions = [
@@ -406,59 +406,6 @@ export class LondonSkyline extends THREE.Group {
     }
   }
 
-  private addHorizonGround() {
-    const concreteMaterial = createTexturedMaterial('concrete', 0x85827a, 34, 8, {
-      roughness: 0.94,
-    });
-    const grassHalfWidth = 180;
-    const grassHalfDepth = 130;
-    const northOuterZ = -212;
-    const southOuterZ = 212;
-    const westOuterX = -232;
-    const eastOuterX = 232;
-    const slabs = [
-      {
-        width: eastOuterX - westOuterX,
-        depth: -grassHalfDepth - northOuterZ,
-        x: 0,
-        z: (northOuterZ - grassHalfDepth) / 2,
-      },
-      {
-        width: eastOuterX - westOuterX,
-        depth: southOuterZ - grassHalfDepth,
-        x: 0,
-        z: (southOuterZ + grassHalfDepth) / 2,
-      },
-      {
-        width: -grassHalfWidth - westOuterX,
-        depth: grassHalfDepth * 2,
-        x: (westOuterX - grassHalfWidth) / 2,
-        z: 0,
-      },
-      {
-        width: eastOuterX - grassHalfWidth,
-        depth: grassHalfDepth * 2,
-        x: (eastOuterX + grassHalfWidth) / 2,
-        z: 0,
-      },
-    ];
-
-    // Merge all 4 ground slabs into a single mesh
-    const groundGeoms: THREE.BufferGeometry[] = [];
-    for (const slab of slabs) {
-      const g = new THREE.PlaneGeometry(slab.width, slab.depth).clone();
-      g.applyMatrix4(
-        new THREE.Matrix4().compose(
-          new THREE.Vector3(slab.x, -0.01, slab.z),
-          new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0)),
-          new THREE.Vector3(1, 1, 1),
-        ),
-      );
-      groundGeoms.push(g);
-    }
-    const groundMesh = flushMesh(groundGeoms, concreteMaterial, false, true);
-    if (groundMesh) this.add(groundMesh);
-  }
 
   public update(delta: number, running: boolean) {
     if (running && this.londonEyeWheel && this.londonEyeIronwork && this.londonEyePods) {
