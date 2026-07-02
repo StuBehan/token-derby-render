@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref, computed, type ComponentPublicInstance
 import { DerbyScene } from './engine/DerbyScene';
 import { Horse } from './engine/Horse';
 import type { WeatherType } from './engine/Weather';
+import { locations, defaultLocation, type Location } from './engine/locations';
 import { type RaceView, type HorseColors } from './engine/RaceClient';
 import { type RequestedCameraMode, type HorseCameraMode, type SceneCameraMode } from './engine/CameraController';
 import { startConfettiAnimation } from './ui/confetti';
@@ -17,6 +18,7 @@ const viewport = ref<HTMLDivElement | null>(null);
 const isRunning = ref(true);
 const weather = ref<WeatherType>('light_cloud');
 const timeOfDayRef = ref(12.0); // start at noon (12:00)
+const selectedLocation = ref<Location>(defaultLocation);
 let derbyScene: DerbyScene | null = null;
 
 const selectedHorse = ref<Horse | null>(null);
@@ -55,9 +57,9 @@ const liveRace = useLiveRace({
   onRaceFinished: () => {
     triggerFinishedConfetti();
   },
-  onLondonConditions: (londonWeather, daylight) => {
-    weather.value = londonWeather;
-    derbyScene?.setWeather(londonWeather);
+  onLocationConditions: (locationWeather, daylight) => {
+    weather.value = locationWeather;
+    derbyScene?.setWeather(locationWeather);
 
     timeOfDayRef.value = daylight.currentHour;
     derbyScene?.setTimeOfDay(daylight.currentHour);
@@ -69,6 +71,7 @@ const liveRace = useLiveRace({
     stopFinishedConfetti();
     derbyScene?.clearLiveRace();
   },
+  getLocation: () => selectedLocation.value,
 });
 
 const {
@@ -139,11 +142,11 @@ function setHorseCamMode(mode: HorseCameraMode) {
   }
 }
 
-onMounted(() => {
+function setupDerbyScene(location: Location) {
   if (!viewport.value) return;
 
-  derbyScene = new DerbyScene(viewport.value);
-  
+  derbyScene = new DerbyScene(viewport.value, location);
+
   // Set up the time of day callback from the 3D scene engine
   derbyScene.onTimeUpdate = (time: number) => {
     timeOfDayRef.value = time;
@@ -179,6 +182,20 @@ onMounted(() => {
   };
 
   derbyScene.start();
+}
+
+function updateLocation(event: Event) {
+  const id = (event.target as HTMLSelectElement).value;
+  const next = locations.find((location) => location.id === id);
+  if (!next || next.id === selectedLocation.value.id) return;
+
+  selectedLocation.value = next;
+  derbyScene?.dispose();
+  setupDerbyScene(next);
+}
+
+onMounted(() => {
+  setupDerbyScene(selectedLocation.value);
   liveRace.startCountdown();
 });
 
@@ -466,7 +483,15 @@ const visualPodium = computed(() => buildVisualPodium(podiumHorses.value));
             </select>
           </div>
 
-          <!-- 3. Weather Selector (Weather) -->
+          <!-- 3. Location Selector (Location) -->
+          <div class="control-row location-row" v-if="!joinedRace">
+            <span class="control-label">Location:</span>
+            <select :value="selectedLocation.id" aria-label="Location" @change="updateLocation">
+              <option v-for="location in locations" :key="location.id" :value="location.id">{{ location.label }}</option>
+            </select>
+          </div>
+
+          <!-- 4. Weather Selector (Weather) -->
           <div class="control-row weather-row" v-if="!joinedRace">
             <span class="control-label">Weather:</span>
             <select :value="weather" aria-label="Weather" @change="updateWeather">
@@ -477,24 +502,24 @@ const visualPodium = computed(() => buildVisualPodium(podiumHorses.value));
             </select>
           </div>
 
-          <!-- 4. Time of Day Control (Time) -->
+          <!-- 5. Time of Day Control (Time) -->
           <div class="control-row time-row" v-if="!joinedRace">
             <span class="control-label">Time:</span>
             <div class="time-inputs">
               <span class="clock-display" aria-live="polite">{{ formattedTime }}</span>
-              <input 
-                type="range" 
-                min="0" 
-                max="23.99" 
-                step="0.05" 
-                :value="timeOfDayRef" 
+              <input
+                type="range"
+                min="0"
+                max="23.99"
+                step="0.05"
+                :value="timeOfDayRef"
                 aria-label="Time of Day Slider"
-                @input="onTimeSliderInput" 
+                @input="onTimeSliderInput"
               />
             </div>
           </div>
 
-          <!-- 5. Simulation Actions (Sim) -->
+          <!-- 6. Simulation Actions (Sim) -->
           <div class="control-row sim-row" v-if="!joinedRace">
             <span class="control-label">Sim:</span>
             <div class="pill-buttons">

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Horse } from './Horse';
 import type { Grandstand } from './Grandstand';
 import type { StreetLight } from './StreetLight';
-import type { LondonSkyline } from './LondonSkyline';
+import type { LandmarkSet, Location } from './locations/Location';
 import type { Floodlights } from './Floodlights';
 import type { WeatherType } from './Weather';
 import type { RaceView, HorseView } from './RaceClient';
@@ -25,6 +25,7 @@ import { DerbyWeatherSystem } from './DerbyWeatherSystem';
 import { RaceStatusCameraDirector } from './RaceStatusCameraDirector';
 import { updateRaceHorses } from './HorseRaceAnimator';
 import { createTrackCurve } from './TrackLayout';
+import { defaultLocation } from './locations';
 
 export class DerbyScene {
   private readonly host: HTMLElement;
@@ -38,7 +39,7 @@ export class DerbyScene {
   private readonly achievementEffects = new AchievementEffects();
   
   // Skyline and weather components
-  private skyline!: LondonSkyline;
+  private skyline!: LandmarkSet;
   private floodlights!: Floodlights;
   private grandstand!: Grandstand;
   private readonly weather = new DerbyWeatherSystem();
@@ -67,9 +68,11 @@ export class DerbyScene {
   private readonly scoreboardText = new GrandstandScoreboardText();
   private readonly scratchVec1 = new THREE.Vector3();
   private readonly resizeObserver: ResizeObserver;
+  private readonly location: Location;
 
-  constructor(host: HTMLElement) {
+  constructor(host: HTMLElement, location: Location = defaultLocation) {
     this.host = host;
+    this.location = location;
     this.trackCurve = createTrackCurve();
     this.cameraController = new CameraController(this.camera, this.trackCurve);
     this.cloudSystem = new CloudSystem(this.scene);
@@ -210,7 +213,7 @@ export class DerbyScene {
   }
 
   private buildScene() {
-    const world = buildDerbyWorld(this.scene, this.cloudSystem, this.streetLights);
+    const world = buildDerbyWorld(this.scene, this.cloudSystem, this.streetLights, this.location);
     this.skyline = world.skyline;
     this.floodlights = world.floodlights;
     this.grandstand = world.grandstand;

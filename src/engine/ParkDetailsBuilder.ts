@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { Bench } from './Bench';
 import { StreetLight } from './StreetLight';
-import { TerraceHouse } from './TerraceHouse';
-import { createTexturedMaterial, getSurfaceTexture } from './Textures';
+import { createTexturedMaterial } from './Textures';
+import type { Location } from './locations/Location';
 import {
   PARK_BOUNDARY_HALF_DEPTH,
   PARK_BOUNDARY_HALF_WIDTH,
@@ -11,17 +11,10 @@ import {
   isStreetOpening,
 } from './ParkLayout';
 
-export function addLondonParkDetails(scene: THREE.Scene, streetLights: StreetLight[]) {
+export function addParkDetails(scene: THREE.Scene, streetLights: StreetLight[], location: Location) {
   const pathMaterial = createTexturedMaterial('path', 0xc9bda5, 38, 5, { roughness: 0.96 });
   const ironMaterial = new THREE.MeshStandardMaterial({ color: 0x111719, roughness: 0.55 });
   const stoneMaterial = new THREE.MeshStandardMaterial({ color: 0xa89478, roughness: 0.9 });
-  const brickMaterials = [0x8d7462, 0x9a7d68, 0x74675d, 0x92705e].map(
-    (color) => new THREE.MeshStandardMaterial({
-      color,
-      map: getSurfaceTexture('brick', 4, 5),
-      roughness: 0.86,
-    }),
-  );
 
   for (const path of PARK_PATHS) {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(path.width, 0.05, path.depth), pathMaterial);
@@ -58,13 +51,13 @@ export function addLondonParkDetails(scene: THREE.Scene, streetLights: StreetLig
     scene.add(newBench.group);
   }
 
-  addCityHorizon(scene, streetLights, brickMaterials, ironMaterial);
+  addCityHorizon(scene, streetLights, location, ironMaterial);
 }
 
 function addCityHorizon(
   scene: THREE.Scene,
   streetLights: StreetLight[],
-  brickMaterials: THREE.Material[],
+  location: Location,
   ironMaterial: THREE.Material,
 ) {
   const spacing = 14;
@@ -75,41 +68,25 @@ function addCityHorizon(
 
   for (let x = -PARK_BOUNDARY_HALF_WIDTH - 34, index = 0; x <= PARK_BOUNDARY_HALF_WIDTH + 34; x += spacing, index += 1) {
     if (!isStreetOpening(x, northZ, 8)) {
-      const house = new TerraceHouse(new THREE.Vector3(x, 0, northZ - (index % 2) * 2), {
-        index,
-        brickMaterials,
-        rotationY: 0,
-      });
-      scene.add(house.group);
+      const building = location.buildHorizonBuilding(new THREE.Vector3(x, 0, northZ - (index % 2) * 2), index, 0);
+      scene.add(building);
     }
 
     if (!isStreetOpening(x, southZ, 8)) {
-      const house = new TerraceHouse(new THREE.Vector3(x, 0, southZ + (index % 2) * 2), {
-        index: index + 30,
-        brickMaterials,
-        rotationY: Math.PI,
-      });
-      scene.add(house.group);
+      const building = location.buildHorizonBuilding(new THREE.Vector3(x, 0, southZ + (index % 2) * 2), index + 30, Math.PI);
+      scene.add(building);
     }
   }
 
   for (let z = -PARK_BOUNDARY_HALF_DEPTH - 24, index = 0; z <= PARK_BOUNDARY_HALF_DEPTH + 24; z += spacing, index += 1) {
     if (!isStreetOpening(westX, z, 8)) {
-      const house = new TerraceHouse(new THREE.Vector3(westX - (index % 2) * 2, 0, z), {
-        index: index + 60,
-        brickMaterials,
-        rotationY: Math.PI / 2,
-      });
-      scene.add(house.group);
+      const building = location.buildHorizonBuilding(new THREE.Vector3(westX - (index % 2) * 2, 0, z), index + 60, Math.PI / 2);
+      scene.add(building);
     }
 
     if (!isStreetOpening(eastX, z, 8)) {
-      const house = new TerraceHouse(new THREE.Vector3(eastX + (index % 2) * 2, 0, z), {
-        index: index + 90,
-        brickMaterials,
-        rotationY: -Math.PI / 2,
-      });
-      scene.add(house.group);
+      const building = location.buildHorizonBuilding(new THREE.Vector3(eastX + (index % 2) * 2, 0, z), index + 90, -Math.PI / 2);
+      scene.add(building);
     }
   }
 

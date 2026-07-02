@@ -1,7 +1,8 @@
 import { computed, ref } from 'vue';
 import { RaceClient, type RaceView, type HorseView } from '../engine/RaceClient';
 import type { WeatherType } from '../engine/Weather';
-import { fetchLondonDaylight, fetchLondonWeather } from '../engine/WeatherService';
+import { fetchDaylight, fetchWeather } from '../engine/WeatherService';
+import { defaultLocation, type Location } from '../engine/locations';
 
 export interface DaylightSync {
   currentHour: number;
@@ -13,8 +14,10 @@ interface LiveRaceOptions {
   onRaceUpdate: (race: RaceView) => void;
   onInitialRace: (race: RaceView) => void;
   onRaceFinished: () => void;
-  onLondonConditions: (weather: WeatherType, daylight: DaylightSync) => void;
+  onLocationConditions: (weather: WeatherType, daylight: DaylightSync) => void;
   onLeave: () => void;
+  /** Called at sync time to read the currently selected location, so location changes take effect on the next join. */
+  getLocation?: () => Location;
 }
 
 export function useLiveRace(options: LiveRaceOptions) {
@@ -87,7 +90,7 @@ export function useLiveRace(options: LiveRaceOptions) {
       options.onRaceUpdate(initialRace);
       options.onInitialRace(initialRace);
 
-      syncLondonConditions();
+      syncLocationConditions();
       raceClient.startPolling(2000);
 
       if (initialRace.status === 'finished') {
@@ -124,13 +127,14 @@ export function useLiveRace(options: LiveRaceOptions) {
     return serverTimeMs - lastHeartbeatMs > 75000;
   }
 
-  function syncLondonConditions() {
-    Promise.all([fetchLondonWeather(), fetchLondonDaylight()])
-      .then(([londonWeather, daylight]) => {
-        options.onLondonConditions(londonWeather, daylight);
+  function syncLocationConditions() {
+    const location = options.getLocation?.() ?? defaultLocation;
+    Promise.all([fetchWeather(location.weather), fetchDaylight(location.weather)])
+      .then(([weather, daylight]) => {
+        options.onLocationConditions(weather, daylight);
       })
       .catch((err) => {
-        console.error('Failed to sync London weather/daylight on join:', err);
+        console.error('Failed to sync location weather/daylight on join:', err);
       });
   }
 
