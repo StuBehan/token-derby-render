@@ -107,6 +107,16 @@ select:hover {
   text-transform: uppercase;
 }
 
+.eyebrow-link {
+  color: inherit;
+  text-decoration: none;
+  pointer-events: auto;
+}
+
+.eyebrow-link:hover {
+  text-decoration: underline;
+}
+
 .race-actions {
   display: flex;
   flex-wrap: wrap;

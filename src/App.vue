@@ -200,6 +200,13 @@ function resetRace() {
   derbyScene?.reset();
 }
 
+function enableDebugOverlay() {
+  const url = new URL(window.location.href);
+  if (url.searchParams.get('debug') === 'perf') return;
+  url.searchParams.set('debug', 'perf');
+  window.location.href = url.toString();
+}
+
 function updateWeather(event: Event) {
   const nextWeather = (event.target as HTMLSelectElement).value as WeatherType;
   weather.value = nextWeather;
@@ -412,8 +419,9 @@ const visualPodium = computed(() => buildVisualPodium(podiumHorses.value));
 
       <div class="race-hud">
         <div>
-          <p class="eyebrow">Token Derby Render</p>
-          <h1>Race Visual Engine</h1>
+          <p class="eyebrow">
+            <a href="https://github.com/StuBehan/token-derby-render" target="_blank" rel="noopener noreferrer" class="eyebrow-link">Token Derby Render</a>
+          </p>
         </div>
 
         <div class="controls-pane">
@@ -494,6 +502,7 @@ const visualPodium = computed(() => buildVisualPodium(podiumHorses.value));
                 {{ isRunning ? 'Pause' : 'Run' }}
               </button>
               <button type="button" class="action-btn" @click="resetRace">Reset</button>
+              <button type="button" class="action-btn" @click="enableDebugOverlay">Debug</button>
             </div>
           </div>
         </div>

@@ -119,6 +119,7 @@ function addCityHorizon(
     if (!isStreetOpening(x, -122, 6)) {
       const streetLight = new StreetLight(new THREE.Vector3(x, 0, -122), ironMaterial, {
         castShadow: false,
+        disableLight: true,
       });
       scene.add(streetLight.group);
       streetLights.push(streetLight);
@@ -129,6 +130,7 @@ function addCityHorizon(
     if (!isStreetOpening(x, 122, 6)) {
       const streetLight = new StreetLight(new THREE.Vector3(x, 0, 122), ironMaterial, {
         castShadow: false,
+        disableLight: true,
       });
       scene.add(streetLight.group);
       streetLights.push(streetLight);
@@ -139,6 +141,7 @@ function addCityHorizon(
     if (!isStreetOpening(-158, z, 6)) {
       const streetLight = new StreetLight(new THREE.Vector3(-158, 0, z), ironMaterial, {
         castShadow: false,
+        disableLight: true,
       });
       streetLight.group.rotation.y = Math.PI / 2;
       scene.add(streetLight.group);
@@ -150,6 +153,7 @@ function addCityHorizon(
     if (!isStreetOpening(158, z, 6)) {
       const streetLight = new StreetLight(new THREE.Vector3(158, 0, z), ironMaterial, {
         castShadow: false,
+        disableLight: true,
       });
       streetLight.group.rotation.y = Math.PI / 2;
       scene.add(streetLight.group);
