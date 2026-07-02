@@ -448,7 +448,7 @@ select:hover {
   top: 20px;
   left: 20px;
   max-height: calc(100vh - 40px);
-  width: 380px;
+  width: 481px;
   background: rgba(16, 20, 15, 0.82);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 12px;
@@ -476,6 +476,17 @@ select:hover {
 .panel-header {
   padding: 16px 20px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.header-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.weather-icon {
+  font-size: 1.15rem;
+  line-height: 1;
 }
 
 .panel-header h2 {
@@ -608,6 +619,35 @@ select:hover {
   font-weight: 700;
 }
 
+.col-level {
+  width: 46px;
+  text-align: center;
+}
+
+.level-badge {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.1;
+  font-weight: 700;
+  color: #e7d17c;
+  background: rgba(231, 209, 124, 0.15);
+  border: 1px solid rgba(231, 209, 124, 0.3);
+  border-radius: 3px;
+  padding: 2px 4px;
+  vertical-align: middle;
+}
+
+.level-label {
+  font-size: 0.55rem;
+  font-weight: 600;
+  opacity: 0.8;
+}
+
+.level-num {
+  font-size: 0.82rem;
+}
+
 .col-name {
   display: flex;
   align-items: center;
@@ -652,6 +692,7 @@ select:hover {
 
 td.col-tokens {
   text-align: right;
+  padding-left: 12px;
 }
 
 .leave-btn {
@@ -1012,8 +1053,11 @@ td.col-xp-gain {
 }
 
 .podium-level-chip {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.1;
   background: rgba(255, 255, 255, 0.1);
-  font-size: 0.7rem;
   font-weight: 700;
   padding: 2px 6px;
   border-radius: 4px;
@@ -1197,6 +1241,13 @@ td.col-xp-gain {
 
 .text-green {
   color: #2ecc71;
+}
+
+.level-cell {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.1;
 }
 
 .jockey-sub {

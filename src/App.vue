@@ -10,6 +10,7 @@ import { useAchievementToasts } from './ui/achievementToasts';
 import { PodiumPreviewRenderer } from './ui/PodiumPreviewRenderer';
 import { useLiveRace } from './ui/useLiveRace';
 import { buildPodiumHorses, buildVisualPodium, getPillarNumber } from './ui/podium';
+import { levelFromXp } from './ui/leveling';
 import { formatClockTime, formatTimeLeft } from './ui/timeFormat';
 
 const viewport = ref<HTMLDivElement | null>(null);
@@ -213,6 +214,28 @@ function onTimeSliderInput(event: Event) {
 
 const formattedTime = computed(() => formatClockTime(timeOfDayRef.value));
 
+function truncateName(name: string, max = 20): string {
+  if (name.length <= max) return name;
+  return name.slice(0, max).trimEnd() + '…';
+}
+
+const weatherIcons: Record<WeatherType, string> = {
+  light_cloud: '🌤️',
+  very_cloudy: '☁️',
+  rainy: '🌧️',
+  storm: '⛈️',
+};
+
+const weatherLabels: Record<WeatherType, string> = {
+  light_cloud: 'Light Cloud',
+  very_cloudy: 'Very Cloudy',
+  rainy: 'Rain',
+  storm: 'Storm',
+};
+
+const weatherIcon = computed(() => weatherIcons[weather.value]);
+const weatherLabel = computed(() => weatherLabels[weather.value]);
+
 const podiumHorses = computed(() => buildPodiumHorses(joinedRace.value));
 
 const visualPodium = computed(() => buildVisualPodium(podiumHorses.value));
@@ -289,9 +312,12 @@ const visualPodium = computed(() => buildVisualPodium(podiumHorses.value));
       <!-- Live Race Panel (Glassmorphism overlay) -->
       <div v-if="joinedRace" class="live-race-panel">
         <div class="panel-header">
-          <div class="live-indicator-wrapper">
-            <span :class="['status-dot', joinedRace.status]"></span>
-            <span class="status-text">{{ joinedRace.status === 'pending' ? 'AWAITING START' : joinedRace.status.toUpperCase() }}</span>
+          <div class="header-top-row">
+            <div class="live-indicator-wrapper">
+              <span :class="['status-dot', joinedRace.status]"></span>
+              <span class="status-text">{{ joinedRace.status === 'pending' ? 'AWAITING START' : joinedRace.status.toUpperCase() }}</span>
+            </div>
+            <span class="weather-icon" :title="weatherLabel" role="img" :aria-label="weatherLabel">{{ weatherIcon }}</span>
           </div>
           <h2>{{ joinedRace.name }}</h2>
           <p class="join-code-badge font-mono">CODE: {{ joinedRace.join_code }}</p>
@@ -322,6 +348,7 @@ const visualPodium = computed(() => buildVisualPodium(podiumHorses.value));
                 <tr>
                   <th class="col-rank">Pos</th>
                   <th class="col-name">Horse / Jockey</th>
+                  <th class="col-level"></th>
                   <th class="col-tokens">Tokens</th>
                   <th class="col-xp">XP</th>
                   <th class="col-xp-gain">Gain</th>
@@ -337,12 +364,18 @@ const visualPodium = computed(() => buildVisualPodium(podiumHorses.value));
                   <td class="col-name">
                     <span class="color-dot" :style="{ backgroundColor: horse.colors.saddle }"></span>
                     <div class="horse-names-wrapper">
-                      <span class="horse-display-name">{{ horse.name }}</span>
+                      <span class="horse-display-name">{{ truncateName(horse.name) }}</span>
                       <span class="user-display-name">
-                        by {{ horse.user_name }}
+                        by {{ truncateName(horse.user_name) }}
                         <span v-if="isHorseInactive(horse)" class="inactive-badge" title="Inactive - Eating Grass">🌾 Inactive</span>
                       </span>
                     </div>
+                  </td>
+                  <td class="col-level font-mono">
+                    <span class="level-badge">
+                      <span class="level-label">Lvl</span>
+                      <span class="level-num">{{ levelFromXp(horse.xp + (horse.live_xp || 0)) }}</span>
+                    </span>
                   </td>
                   <td class="col-tokens font-mono">{{ horse.current_tokens.toLocaleString() }}</td>
                   <td class="col-xp font-mono">{{ (horse.xp + (horse.live_xp || 0)).toLocaleString() }}</td>
@@ -498,7 +531,10 @@ const visualPodium = computed(() => buildVisualPodium(podiumHorses.value));
                 </div>
                 
                 <div class="podium-xp-awards">
-                  <span class="podium-level-chip">Lvl. {{ p.data.afterInfo.level }}</span>
+                  <span class="podium-level-chip">
+                    <span class="level-label">Lvl.</span>
+                    <span class="level-num">{{ p.data.afterInfo.level }}</span>
+                  </span>
                   <span class="podium-xp-gained">+{{ p.data.xpAwarded }} XP</span>
                 </div>
                 
@@ -552,11 +588,13 @@ const visualPodium = computed(() => buildVisualPodium(podiumHorses.value));
                   <td class="font-mono text-right">{{ horse.current_tokens.toLocaleString() }}</td>
                   <td class="font-mono text-right text-green">+{{ horse.xpAwarded }} XP</td>
                   <td class="font-mono text-right">
-                    <span v-if="horse.levelledUp" class="text-green">
-                      Lvl. {{ horse.beforeInfo.level }} → {{ horse.afterInfo.level }}
+                    <span v-if="horse.levelledUp" class="text-green level-cell">
+                      <span class="level-label">Lvl.</span>
+                      <span class="level-num">{{ horse.beforeInfo.level }} → {{ horse.afterInfo.level }}</span>
                     </span>
-                    <span v-else>
-                      Lvl. {{ horse.afterInfo.level }}
+                    <span v-else class="level-cell">
+                      <span class="level-label">Lvl.</span>
+                      <span class="level-num">{{ horse.afterInfo.level }}</span>
                     </span>
                   </td>
                 </tr>

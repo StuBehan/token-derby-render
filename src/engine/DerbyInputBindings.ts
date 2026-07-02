@@ -88,6 +88,8 @@ export class DerbyInputBindings {
       this.lastPointerY = event.clientY;
 
       this.cameraController.dragPointerLook(deltaX, deltaY, this.getSelectedHorse());
+    } else if (this.cameraController.selectedHorseMode === 'jockey') {
+      this.horsePicker.clearHover();
     } else {
       this.horsePicker.updateHover(event);
     }
