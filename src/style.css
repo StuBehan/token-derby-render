@@ -494,6 +494,36 @@ select:hover {
   justify-content: space-between;
 }
 
+.scene-condition-icons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.location-pin-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.location-mini-select {
+  background: transparent;
+  border: none;
+  color: #fff8ec;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  padding: 0;
+  min-width: unset;
+  height: auto;
+  backdrop-filter: none;
+}
+
+.location-mini-select option {
+  background: #121612;
+  color: #fff;
+}
+
 .weather-icon {
   font-size: 1.15rem;
   line-height: 1;

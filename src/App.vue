@@ -18,6 +18,8 @@ const viewport = ref<HTMLDivElement | null>(null);
 const isRunning = ref(true);
 const weather = ref<WeatherType>('light_cloud');
 const timeOfDayRef = ref(12.0); // start at noon (12:00)
+const sunriseHourRef = ref(7.5);
+const sunsetHourRef = ref(17.0);
 const selectedLocation = ref<Location>(defaultLocation);
 let derbyScene: DerbyScene | null = null;
 
@@ -62,6 +64,8 @@ const liveRace = useLiveRace({
     derbyScene?.setWeather(locationWeather);
 
     timeOfDayRef.value = daylight.currentHour;
+    sunriseHourRef.value = daylight.sunriseHour;
+    sunsetHourRef.value = daylight.sunsetHour;
     derbyScene?.setTimeOfDay(daylight.currentHour);
     derbyScene?.setSunriseSunset(daylight.sunriseHour, daylight.sunsetHour);
   },
@@ -260,6 +264,39 @@ const weatherLabels: Record<WeatherType, string> = {
 const weatherIcon = computed(() => weatherIcons[weather.value]);
 const weatherLabel = computed(() => weatherLabels[weather.value]);
 
+type TimeOfDayPhase = 'dawn' | 'day' | 'dusk' | 'night';
+
+const timeOfDayIcons: Record<TimeOfDayPhase, string> = {
+  dawn: '🌅',
+  day: '☀️',
+  dusk: '🌇',
+  night: '🌙',
+};
+
+const timeOfDayLabels: Record<TimeOfDayPhase, string> = {
+  dawn: 'Dawn',
+  day: 'Day',
+  dusk: 'Dusk',
+  night: 'Night',
+};
+
+// Mirrors the transition windows the 3D scene's WeatherManager uses to blend day/night lighting
+const timeOfDayPhase = computed<TimeOfDayPhase>(() => {
+  const t = timeOfDayRef.value;
+  const sunriseStart = sunriseHourRef.value - 1.5;
+  const sunriseEnd = sunriseHourRef.value + 1.5;
+  const sunsetStart = sunsetHourRef.value - 2.0;
+  const sunsetEnd = sunsetHourRef.value + 2.0;
+
+  if (t >= sunriseStart && t < sunriseEnd) return 'dawn';
+  if (t >= sunriseEnd && t < sunsetStart) return 'day';
+  if (t >= sunsetStart && t < sunsetEnd) return 'dusk';
+  return 'night';
+});
+
+const timeOfDayIcon = computed(() => timeOfDayIcons[timeOfDayPhase.value]);
+const timeOfDayLabel = computed(() => timeOfDayLabels[timeOfDayPhase.value]);
+
 const podiumHorses = computed(() => buildPodiumHorses(joinedRace.value));
 
 const visualPodium = computed(() => buildVisualPodium(podiumHorses.value));
@@ -341,7 +378,14 @@ const visualPodium = computed(() => buildVisualPodium(podiumHorses.value));
               <span :class="['status-dot', joinedRace.status]"></span>
               <span class="status-text">{{ joinedRace.status === 'pending' ? 'AWAITING START' : joinedRace.status.toUpperCase() }}</span>
             </div>
-            <span class="weather-icon" :title="weatherLabel" role="img" :aria-label="weatherLabel">{{ weatherIcon }}</span>
+            <div class="scene-condition-icons">
+              <span class="location-pin-icon" role="img" aria-label="Location">📍</span>
+              <select class="location-mini-select" :value="selectedLocation.id" aria-label="Location" @change="updateLocation">
+                <option v-for="location in locations" :key="location.id" :value="location.id">{{ location.label }}</option>
+              </select>
+              <span class="weather-icon" :title="timeOfDayLabel" role="img" :aria-label="timeOfDayLabel">{{ timeOfDayIcon }}</span>
+              <span class="weather-icon" :title="weatherLabel" role="img" :aria-label="weatherLabel">{{ weatherIcon }}</span>
+            </div>
           </div>
           <h2>{{ joinedRace.name }}</h2>
           <p class="join-code-badge font-mono">CODE: {{ joinedRace.join_code }}</p>
