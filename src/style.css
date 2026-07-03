@@ -417,6 +417,22 @@ select:hover {
   margin-top: 4px;
 }
 
+.camera-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.random-cam-btn {
+  white-space: nowrap;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.control-row select:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .view-btns {
   display: flex;
   gap: 2px;

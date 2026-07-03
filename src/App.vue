@@ -41,6 +41,38 @@ function onSceneCamModeChange(event: Event) {
   sceneCamMode.value = nextMode;
   derbyScene?.setCameraMode(nextMode);
 }
+
+// Random camera feed: periodically cuts between the fixed broadcast angles,
+// like a director switching feeds. Skips ticks while the race director owns
+// the camera (start pan / finish / transition) so it doesn't fight those cuts.
+const RANDOM_CAMERA_POOL: RequestedCameraMode[] = ['free', 'grandstand_top', 'curve_iso', 'rail_cam'];
+const randomCameraEnabled = ref(false);
+let randomCameraTimer: number | null = null;
+
+function pickNextRandomCameraMode(): RequestedCameraMode {
+  const choices = RANDOM_CAMERA_POOL.filter((mode) => mode !== sceneCamMode.value);
+  return choices[Math.floor(Math.random() * choices.length)];
+}
+
+function runRandomCameraSwitch() {
+  const directorOwnsCamera = isCameraLocked.value || sceneCamMode.value === 'start_follow';
+  if (!directorOwnsCamera) {
+    const nextMode = pickNextRandomCameraMode();
+    sceneCamMode.value = nextMode;
+    derbyScene?.setCameraMode(nextMode);
+  }
+  randomCameraTimer = window.setTimeout(runRandomCameraSwitch, 8000 + Math.random() * 8000);
+}
+
+function toggleRandomCamera() {
+  randomCameraEnabled.value = !randomCameraEnabled.value;
+  if (randomCameraEnabled.value) {
+    runRandomCameraSwitch();
+  } else if (randomCameraTimer !== null) {
+    window.clearTimeout(randomCameraTimer);
+    randomCameraTimer = null;
+  }
+}
 const achievementToasts = useAchievementToasts();
 const activeToasts = achievementToasts.activeToasts;
 
@@ -244,6 +276,10 @@ onBeforeUnmount(() => {
   stopFinishedConfetti();
   stopTokenRateFlash();
   podiumPreviewRenderer.cleanupAll();
+  if (randomCameraTimer !== null) {
+    window.clearTimeout(randomCameraTimer);
+    randomCameraTimer = null;
+  }
   derbyScene?.dispose();
   derbyScene = null;
 });
@@ -562,16 +598,25 @@ const visualPodium = computed(() => buildVisualPodium(podiumHorses.value));
           <!-- 2. Camera views dropdown (Camera) -->
           <div class="control-row camera-row">
             <span class="control-label">Camera:</span>
-            <select :value="sceneCamMode" aria-label="Camera View" @change="onSceneCamModeChange">
-              <option value="free">Orbit (Free)</option>
-              <option value="start_hold">Overlook Start</option>
-              <option value="start_follow">Start Follow</option>
-              <option value="start_pan">Panoramic Pan</option>
-              <option value="finish_view">Finish Line</option>
-              <option value="grandstand_top">Grandstand Summit</option>
-              <option value="curve_iso">Curve Isometric</option>
-              <option value="rail_cam">Rail Cam</option>
-            </select>
+            <span class="camera-controls">
+              <button
+                type="button"
+                :class="['cam-btn', 'random-cam-btn', { active: randomCameraEnabled }]"
+                :aria-pressed="randomCameraEnabled"
+                title="Randomly cut between camera angles"
+                @click="toggleRandomCamera"
+              >🎲 Random</button>
+              <select :value="sceneCamMode" :disabled="randomCameraEnabled" aria-label="Camera View" @change="onSceneCamModeChange">
+                <option value="free">Orbit (Free)</option>
+                <option value="start_hold">Overlook Start</option>
+                <option value="start_follow">Start Follow</option>
+                <option value="start_pan">Panoramic Pan</option>
+                <option value="finish_view">Finish Line</option>
+                <option value="grandstand_top">Grandstand Summit</option>
+                <option value="curve_iso">Curve Isometric</option>
+                <option value="rail_cam">Rail Cam</option>
+              </select>
+            </span>
           </div>
 
           <!-- 3. Location Selector (Location) -->
