@@ -33,6 +33,8 @@ export interface HorseView {
   rank: number;
   recent_events?: RecentEvent[];
   last_heartbeat: string;
+  /** Trailing 15-minute token pace, already expressed as tokens/min by the server. */
+  pace_15m?: number;
 }
 
 export interface RaceView {

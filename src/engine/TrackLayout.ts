@@ -30,6 +30,18 @@ export function createTrackCurve() {
   return createStadiumCurve(TRACK_STRAIGHT_HALF_LENGTH, TRACK_CENTER_RADIUS, 0.08, 28);
 }
 
+// Scene units are treated as metres elsewhere (grandstand, horse, track dimensions are all sized
+// relative to each other on that assumption), so a horse's "progress" speed (fraction of one lap
+// per second) converts to real-world mph via the track's actual lap length. Computed once from the
+// curve's true arc length rather than the stadium's raw perimeter, since the closed Catmull-Rom
+// spline is slightly longer/shorter than the polygon it's fit to.
+const TRACK_LAP_LENGTH_METERS = createTrackCurve().getLength();
+const METERS_PER_SECOND_TO_MPH = 2.2369362920544;
+
+export function progressPerSecondToMph(progressPerSecond: number) {
+  return progressPerSecond * TRACK_LAP_LENGTH_METERS * METERS_PER_SECOND_TO_MPH;
+}
+
 export function createStadiumShape(halfStraightLength: number, radius: number) {
   return createStadiumPath(halfStraightLength, radius, false) as THREE.Shape;
 }

@@ -733,6 +733,47 @@ select:hover {
 td.col-tokens {
   text-align: right;
   padding-left: 12px;
+  position: relative;
+  min-width: 12ch;
+}
+
+.tokens-count {
+  transition: opacity 0.2s ease;
+}
+
+.tokens-count.is-dimmed {
+  opacity: 0.15;
+}
+
+/* Absolutely positioned so the flashing rate badge can never affect the column's width -
+   it overlaps/overflows neighboring columns instead of pushing the table layout around. */
+.token-rate {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  color: #2ecc71;
+  font-weight: 700;
+  background: rgba(12, 18, 14, 0.92);
+  border-radius: 4px;
+  padding: 1px 6px;
+  z-index: 2;
+}
+
+.rate-arrow {
+  display: inline-block;
+  margin-right: 2px;
+}
+
+.rate-flip-enter-active,
+.rate-flip-leave-active {
+  transition: opacity 0.25s ease;
+}
+
+.rate-flip-enter-from,
+.rate-flip-leave-to {
+  opacity: 0;
 }
 
 .leave-btn {

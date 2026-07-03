@@ -13,6 +13,8 @@ import { useLiveRace } from './ui/useLiveRace';
 import { buildPodiumHorses, buildVisualPodium, getPillarNumber } from './ui/podium';
 import { levelFromXp } from './ui/leveling';
 import { formatClockTime, formatTimeLeft } from './ui/timeFormat';
+import { formatCompactNumber } from './ui/numberFormat';
+import { progressPerSecondToMph } from './engine/TrackLayout';
 
 const viewport = ref<HTMLDivElement | null>(null);
 const isRunning = ref(true);
@@ -55,6 +57,7 @@ const liveRace = useLiveRace({
   },
   onInitialRace: (race) => {
     achievementToasts.seedFromRace(race);
+    startTokenRateFlash();
   },
   onRaceFinished: () => {
     triggerFinishedConfetti();
@@ -74,6 +77,7 @@ const liveRace = useLiveRace({
     showFinishedOverlay.value = false;
     stopFinishedConfetti();
     derbyScene?.clearLiveRace();
+    stopTokenRateFlash();
   },
   getLocation: () => selectedLocation.value,
 });
@@ -84,11 +88,43 @@ const {
   isPolling,
   errorMessage,
   timeLeftSeconds,
+  tokensPerMinuteMap,
   sortedLiveHorses,
   joinRace,
   leaveRace,
   isHorseInactive,
 } = liveRace;
+
+// Intermittently flash each horse's most recent tokens/sec (as tpm) over the token count.
+const showTokenRateFlash = ref(false);
+let tokenRateFlashTimer: number | null = null;
+
+function scheduleTokenRateFlash() {
+  tokenRateFlashTimer = window.setTimeout(() => {
+    showTokenRateFlash.value = true;
+    tokenRateFlashTimer = window.setTimeout(() => {
+      showTokenRateFlash.value = false;
+      scheduleTokenRateFlash();
+    }, 7000);
+  }, 6000);
+}
+
+function startTokenRateFlash() {
+  stopTokenRateFlash();
+  scheduleTokenRateFlash();
+}
+
+function stopTokenRateFlash() {
+  if (tokenRateFlashTimer !== null) {
+    window.clearTimeout(tokenRateFlashTimer);
+    tokenRateFlashTimer = null;
+  }
+  showTokenRateFlash.value = false;
+}
+
+function tokensPerMinute(horseId: string): number | null {
+  return tokensPerMinuteMap.value.get(horseId) ?? null;
+}
 
 // Podium & Confetti Overlay State
 const showFinishedOverlay = ref(false);
@@ -206,6 +242,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   liveRace.dispose();
   stopFinishedConfetti();
+  stopTokenRateFlash();
   podiumPreviewRenderer.cleanupAll();
   derbyScene?.dispose();
   derbyScene = null;
@@ -339,7 +376,7 @@ const visualPodium = computed(() => buildVisualPodium(podiumHorses.value));
           </div>
           <div class="stat-row">
             <span class="stat-label">Speed</span>
-            <span class="stat-val font-mono">{{ Math.round(selectedHorse.speed * 2000) }} mph</span>
+            <span class="stat-val font-mono">{{ Math.round(progressPerSecondToMph(selectedHorse.speed)) }} mph</span>
           </div>
           <div class="stat-row">
             <span class="stat-label">Jersey</span>
@@ -445,7 +482,17 @@ const visualPodium = computed(() => buildVisualPodium(podiumHorses.value));
                       <span class="level-num">{{ levelFromXp(horse.xp + (horse.live_xp || 0)) }}</span>
                     </span>
                   </td>
-                  <td class="col-tokens font-mono">{{ horse.current_tokens.toLocaleString() }}</td>
+                  <td class="col-tokens font-mono">
+                    <span
+                      class="tokens-count"
+                      :class="{ 'is-dimmed': showTokenRateFlash && tokensPerMinute(horse.horse_id) !== null }"
+                    >{{ horse.current_tokens.toLocaleString() }}</span>
+                    <transition name="rate-flip">
+                      <span v-if="showTokenRateFlash && tokensPerMinute(horse.horse_id) !== null" class="token-rate">
+                        <span class="rate-arrow">▲</span>{{ formatCompactNumber(tokensPerMinute(horse.horse_id)!) }} tpm
+                      </span>
+                    </transition>
+                  </td>
                   <td class="col-xp font-mono">{{ (horse.xp + (horse.live_xp || 0)).toLocaleString() }}</td>
                   <td class="col-xp-gain font-mono">
                     <span v-if="horse.live_xp" class="live-xp-badge">+{{ horse.live_xp }}</span>

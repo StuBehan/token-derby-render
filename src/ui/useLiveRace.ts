@@ -26,15 +26,64 @@ export function useLiveRace(options: LiveRaceOptions) {
   const isPolling = ref(false);
   const errorMessage = ref('');
   const timeLeftSeconds = ref(0);
+  // Fallback rate for races that don't provide the server's pace_15m (e.g. the DEMO mock race),
+  // derived from the delta between consecutive polls. Noisier than pace_15m since token arrivals
+  // are bursty, so pace_15m is preferred whenever a horse has it.
+  const fallbackRatesPerSecond = ref<Map<string, number>>(new Map());
   const raceClient = new RaceClient();
 
   let countdownInterval: number | null = null;
   let previousStatus = '';
+  const lastTickTokens = new Map<string, { tokens: number; atMs: number }>();
+
+  function seedTokenBaseline(race: RaceView) {
+    const nowMs = Date.parse(race.server_time);
+    lastTickTokens.clear();
+    race.horses.forEach((horse) => {
+      lastTickTokens.set(horse.horse_id, { tokens: horse.current_tokens, atMs: nowMs });
+    });
+  }
+
+  function updateFallbackRates(race: RaceView) {
+    const nowMs = Date.parse(race.server_time);
+    const nextRates = new Map<string, number>();
+    race.horses.forEach((horse) => {
+      const prevTick = lastTickTokens.get(horse.horse_id);
+      if (prevTick && nowMs > prevTick.atMs) {
+        const deltaSeconds = (nowMs - prevTick.atMs) / 1000;
+        nextRates.set(horse.horse_id, (horse.current_tokens - prevTick.tokens) / deltaSeconds);
+      }
+      lastTickTokens.set(horse.horse_id, { tokens: horse.current_tokens, atMs: nowMs });
+    });
+    fallbackRatesPerSecond.value = nextRates;
+  }
+
+  const tokensPerMinuteMap = computed(() => {
+    const map = new Map<string, number>();
+    const race = joinedRace.value;
+    if (!race) return map;
+
+    race.horses.forEach((horse) => {
+      if (typeof horse.pace_15m === 'number') {
+        // pace_15m is already tokens/min (server sums the trailing-window deltas
+        // and divides by the window's minutes) - see token-derby's series-transform.ts.
+        if (horse.pace_15m > 0) map.set(horse.horse_id, Math.round(horse.pace_15m));
+        return;
+      }
+      const perSecond = fallbackRatesPerSecond.value.get(horse.horse_id);
+      if (perSecond && perSecond > 0) {
+        map.set(horse.horse_id, Math.round(perSecond * 60));
+      }
+    });
+
+    return map;
+  });
 
   raceClient.onRaceUpdate = (race) => {
     const isNewFinish = race.status === 'finished' && previousStatus !== 'finished';
     previousStatus = race.status;
 
+    updateFallbackRates(race);
     joinedRace.value = race;
     timeLeftSeconds.value = race.time_left_seconds;
     isPolling.value = false;
@@ -85,6 +134,7 @@ export function useLiveRace(options: LiveRaceOptions) {
       }
 
       previousStatus = initialRace.status;
+      seedTokenBaseline(initialRace);
       joinedRace.value = initialRace;
       timeLeftSeconds.value = initialRace.time_left_seconds;
       options.onRaceUpdate(initialRace);
@@ -109,6 +159,8 @@ export function useLiveRace(options: LiveRaceOptions) {
     isPolling.value = false;
     errorMessage.value = '';
     previousStatus = '';
+    lastTickTokens.clear();
+    fallbackRatesPerSecond.value = new Map();
     options.onLeave();
   }
 
@@ -144,6 +196,7 @@ export function useLiveRace(options: LiveRaceOptions) {
     isPolling,
     errorMessage,
     timeLeftSeconds,
+    tokensPerMinuteMap,
     sortedLiveHorses,
     joinRace,
     leaveRace,

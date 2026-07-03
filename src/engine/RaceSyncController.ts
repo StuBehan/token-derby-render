@@ -3,20 +3,25 @@ import { Horse } from './Horse';
 import { HorseView, RaceView } from './RaceClient';
 import { getLaneCenterOffset, getDynamicLaneOffset } from './TrackLayout';
 
-const TOTAL_LAPS = 5;
+// Races vary hugely in real duration (a 2 minute demo vs. a 12 hour live race), so the lap count
+// is derived from race length to keep a roughly constant, visually satisfying time-per-lap instead
+// of stretching a fixed lap count across whatever the real duration happens to be.
+const TARGET_SECONDS_PER_LAP = 24;
+const FALLBACK_TOTAL_LAPS = 5;
 
 export class RaceSyncController {
   private race: RaceView | null = null;
   private serverTimeOffset = 0;
   private startTime = 0;
   private endTime = 0;
+  private totalLapsCount = FALLBACK_TOTAL_LAPS;
 
   get liveRace() {
     return this.race;
   }
 
   get totalLaps() {
-    return TOTAL_LAPS;
+    return this.totalLapsCount;
   }
 
   setRace(race: RaceView) {
@@ -24,6 +29,11 @@ export class RaceSyncController {
     this.startTime = Date.parse(race.start_time);
     this.endTime = Date.parse(race.end_time);
     this.serverTimeOffset = Date.parse(race.server_time) - Date.now();
+
+    const durationSeconds = (this.endTime - this.startTime) / 1000;
+    this.totalLapsCount = durationSeconds > 0
+      ? Math.max(1, Math.round(durationSeconds / TARGET_SECONDS_PER_LAP))
+      : FALLBACK_TOTAL_LAPS;
   }
 
   clearRace() {
@@ -31,6 +41,7 @@ export class RaceSyncController {
     this.serverTimeOffset = 0;
     this.startTime = 0;
     this.endTime = 0;
+    this.totalLapsCount = FALLBACK_TOTAL_LAPS;
   }
 
   syncHorses(
@@ -77,6 +88,7 @@ export class RaceSyncController {
 
     const elapsed = this.getElapsedRaceRatio();
     const leaderTokens = this.getLeaderTokens(race.horses);
+    const totalLaps = this.totalLapsCount;
 
     horses.forEach((horse, index) => {
       const apiHorse = race.horses[index];
@@ -94,7 +106,7 @@ export class RaceSyncController {
         : this.getInitialProgress(apiHorse, leaderTokens, elapsed);
 
       if (race.status === 'finished') {
-        horse.cumulativeProgress = TOTAL_LAPS;
+        horse.cumulativeProgress = totalLaps;
         horse.progress = 0;
         horse.speed = 0;
         horse.isEatingGrass = false;
@@ -118,21 +130,26 @@ export class RaceSyncController {
       // Under normal circumstances, cap speed to a natural limit (e.g., 0.038).
       // However, if the race is live and the timer is running out, we dynamically increase
       // the speed cap up to an absolute limit (e.g., 0.055) so the horse can catch up and finish on time.
+      // The idle floor speed is likewise capped to half the pace required to finish exactly at
+      // end_time, so a horse can never coast past that pace on long races (e.g. multi-hour races
+      // were finishing visually within minutes because the old flat 0.0035 floor assumed demo-length races).
       let maxSpeed = 0.038;
+      let idleSpeedCap = 0.0035;
       if (race.status === 'live' && this.endTime > 0) {
         const now = Date.now() + this.serverTimeOffset;
         const timeLeftSeconds = (this.endTime - now) / 1000;
         if (timeLeftSeconds > 0) {
-          const remainingProgress = TOTAL_LAPS - horse.cumulativeProgress;
+          const remainingProgress = totalLaps - horse.cumulativeProgress;
           if (remainingProgress > 0) {
             const requiredSpeed = remainingProgress / Math.max(0.5, timeLeftSeconds - 0.5);
             maxSpeed = Math.min(0.055, Math.max(maxSpeed, requiredSpeed));
+            idleSpeedCap = Math.min(idleSpeedCap, requiredSpeed * 0.5);
           }
         }
       }
 
-      const baseSpeed = race.status === 'live' && horse.cumulativeProgress < TOTAL_LAPS && !isInactive
-        ? 0.0035
+      const baseSpeed = race.status === 'live' && horse.cumulativeProgress < totalLaps && !isInactive
+        ? idleSpeedCap
         : 0;
       const desiredSpeed = Math.max(baseSpeed, Math.min(maxSpeed, diff / 1.2));
       const currentSpeed = horse.speed || 0;
@@ -143,9 +160,9 @@ export class RaceSyncController {
       const limit = speedDiff > 0 ? maxAccel * delta : maxDecel * delta;
       const nextSpeed = currentSpeed + Math.max(-limit, Math.min(limit, speedDiff));
 
-      horse.cumulativeProgress = Math.min(TOTAL_LAPS, horse.cumulativeProgress + nextSpeed * delta);
-      horse.progress = horse.cumulativeProgress >= TOTAL_LAPS ? 0 : horse.cumulativeProgress % 1.0;
-      if (horse.cumulativeProgress >= TOTAL_LAPS) {
+      horse.cumulativeProgress = Math.min(totalLaps, horse.cumulativeProgress + nextSpeed * delta);
+      horse.progress = horse.cumulativeProgress >= totalLaps ? 0 : horse.cumulativeProgress % 1.0;
+      if (horse.cumulativeProgress >= totalLaps) {
         horse.speed = 0;
         return;
       }
@@ -154,13 +171,14 @@ export class RaceSyncController {
   }
 
   private getInitialProgress(apiHorse: HorseView, leaderTokens: number, elapsed: number) {
+    const totalLaps = this.totalLapsCount;
     const tokenRatio = apiHorse.current_tokens / leaderTokens;
-    let progress = tokenRatio * elapsed * TOTAL_LAPS;
+    let progress = tokenRatio * elapsed * totalLaps;
 
     if (this.race?.status === 'pending') {
       progress = 0.0;
-    } else if (this.race?.status === 'finished' || progress >= TOTAL_LAPS) {
-      progress = TOTAL_LAPS;
+    } else if (this.race?.status === 'finished' || progress >= totalLaps) {
+      progress = totalLaps;
     }
 
     return progress;
